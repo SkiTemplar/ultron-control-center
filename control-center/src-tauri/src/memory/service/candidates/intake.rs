@@ -24,8 +24,8 @@ impl MemoryService {
         let mut cand = candidate.clone();
 
         // Write-path secret guard (OLA A): redact any credential material from the
-        // proposed text BEFORE it is persisted to brain.db or later embedded into
-        // Qdrant. Defensive — only detected secrets are redacted; normal text is
+        // proposed text BEFORE it is persisted to brain.db (and its FTS5
+        // index). Defensive — only detected secrets are redacted; normal text is
         // left untouched. See memory/redaction.rs and CONTRACTS-2026-06-04.md.
         // Code-location fields (proposed_file_path, proposed_signature) are also
         // redacted: a tool/hook may embed a token (ghp_, sk-) in a file path or
@@ -313,7 +313,7 @@ const CONTRADICTION_BUDGET_MS: u64 = 4_500;
 
 /// Fase D — contradiction detector. Compara la proposición contra los items
 /// ACTIVOS semánticamente cercanos del MISMO proyecto (memory/contradiction.rs:
-/// vecinos densos, o de FTS5 con el denso apagado, + juez LLM fail-safe). Con
+/// vecinos de FTS5 + juez LLM fail-safe). Con
 /// conflicto confirmado solo MARCA: rellena `contradiction_candidates` y manda a
 /// Quarantine para adjudicación humana. NUNCA auto-resuelve ni descarta, y el
 /// detector es CONSERVADOR (el juez devuelve false ante cualquier duda), así que

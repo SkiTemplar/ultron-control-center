@@ -8,7 +8,6 @@
 
 pub(crate) mod archive;
 pub(crate) mod board_io;
-pub(crate) mod file_lock;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

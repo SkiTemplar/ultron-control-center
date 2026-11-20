@@ -202,9 +202,8 @@ function FilterBar({
 // ---------------------------------------------------------------------------
 //
 // Scans a repo ALREADY on disk for skills/agents and runs the post-install
-// step (sync-registry refresh of the dispatcher registry, which no live hook
-// reads since 2026-09-29, + a governed memory candidate in the inbox). Read-only — copies nothing. Surfaces the
-// returned `AnalyzeRepoResult` (assets found, newly detected, candidate id,
+// step (a governed memory candidate in the inbox). Read-only — copies nothing.
+// Surfaces the returned `AnalyzeRepoResult` (assets found, candidate id,
 // non-fatal warnings) so the previously-orphan command has a consumer.
 
 function LocalRepoAnalyzer() {
@@ -327,15 +326,6 @@ function LocalRepoAnalyzer() {
               ) : (
                 <span style={{ color: "var(--color-text-tertiary)" }}>(ninguno)</span>
               )}
-            </div>
-            <div>
-              <span style={{ color: "var(--color-text-tertiary)" }}>Registro del dispatcher: </span>
-              {integration.registry_synced
-                ? `regenerado (${integration.newly_detected} nuevos detectados)`
-                : "no regenerado"}
-              <span style={{ color: "var(--color-text-faint)" }}>
-                {" "}· el dispatcher está desconectado: esto no cambia el routing de las sesiones
-              </span>
             </div>
             <div>
               <span style={{ color: "var(--color-text-tertiary)" }}>Candidato de memoria: </span>

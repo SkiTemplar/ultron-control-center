@@ -18,7 +18,7 @@
 #   n8n-mcp, gemini, gemini-flash, firebase (nunca estuvieron tras refactor)
 
 - mcp_name: context7
-  fallback_message: "Documentation lookup unavailable. Rely on web-search, the brain_index FTS5 query (`uv run python brain_index.py query \"<topic>\"`), or cached knowledge in ~/.ultron/knowledge/."
+  fallback_message: "Documentation lookup unavailable. Rely on web-search, the governed memory (`ultron-memory recall \"<topic>\"`), or cached knowledge in ~/.ultron/knowledge/."
   alert_severity: info
   fallback_skill: null
 
@@ -43,7 +43,3 @@
   alert_severity: warn
   fallback_skill: second-opinion
 
-- mcp_name: qdrant
-  fallback_message: "Qdrant semantic recall unavailable. Use FTS5 keyword fallback: `uv run python brain_index.py query \"<topic>\"`. Vault/skills data intact in ~/.ultron/qdrant_storage."
-  alert_severity: warn
-  fallback_skill: null

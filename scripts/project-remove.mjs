@@ -15,17 +15,22 @@
 //               una baja del registro no deberia destruirlo.
 //   --dry-run   enseña lo que haria sin tocar nada.
 //
-// Escritura atomica (tmp + rename) con backup previo, igual que project-new.
+// Escritura atomica (tmp + rename) con backup previo, igual que project-new, y
+// con el lock de fichero projects.json.lock compartido con la app y los demas
+// CLI (lib/projects-registry.mjs; auditoria 2026-11-08, #12).
+//
+// ULTRON_PROJECTS_JSON_OVERRIDE y ULTRON_BOARDS_DIR_OVERRIDE (solo selftests)
+// apuntan a un registro y a un directorio de tableros temporales.
 
-import { readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
+import { readRegistry, registryPath, updateRegistry } from './lib/projects-registry.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ULTRON = join(__dirname, '..');
-const REGISTRY = join(ULTRON, 'cockpit', 'projects.json');
-const BOARDS = join(ULTRON, 'cockpit', 'projects');
+const REGISTRY = registryPath();
+const BOARDS = process.env.ULTRON_BOARDS_DIR_OVERRIDE || join(ULTRON, 'cockpit', 'projects');
 
 function fail(msg) {
   console.error(`[project-remove] ERROR: ${msg}`);
@@ -45,12 +50,6 @@ function parseArgs(argv) {
   return out;
 }
 
-function writeJsonAtomic(path, data) {
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-  renameSync(tmp, path);
-}
-
 const args = parseArgs(process.argv.slice(2));
 
 if (args.help || !args.id) {
@@ -64,14 +63,18 @@ if (args.help || !args.id) {
 
 if (!existsSync(REGISTRY)) fail(`no existe ${REGISTRY}`);
 
-const registro = JSON.parse(readFileSync(REGISTRY, 'utf8'));
-if (!Array.isArray(registro.projects)) fail(`${REGISTRY} no tiene un array "projects"`);
-
-const entrada = registro.projects.find((p) => p.id === args.id);
-if (!entrada) {
-  const ids = registro.projects.map((p) => p.id).join(', ');
-  fail(`no hay ningun proyecto con id "${args.id}". Ids disponibles: ${ids}`);
+/** Entrada de `id` en el registro o fail() con los ids disponibles. */
+function entradaDe(registro) {
+  if (!Array.isArray(registro.projects)) fail(`${REGISTRY} no tiene un array "projects"`);
+  const hallada = registro.projects.find((p) => p.id === args.id);
+  if (!hallada) {
+    const ids = registro.projects.map((p) => p.id).join(', ');
+    fail(`no hay ningun proyecto con id "${args.id}". Ids disponibles: ${ids}`);
+  }
+  return hallada;
 }
+
+let entrada = entradaDe(readRegistry(REGISTRY));
 
 const tablero = join(BOARDS, args.id);
 const tableroExiste = existsSync(tablero);
@@ -83,9 +86,20 @@ if (args.dryRun) {
   process.exit(0);
 }
 
-reportPruneFailures('project-remove', backupWithRetention(REGISTRY));
-registro.projects = registro.projects.filter((p) => p.id !== args.id);
-writeJsonAtomic(REGISTRY, registro);
+// Se relee bajo el lock: otro escritor pudo cambiar el registro desde la
+// lectura del plan.
+try {
+  updateRegistry(
+    REGISTRY,
+    (registro) => {
+      entrada = entradaDe(registro);
+      return { ...registro, projects: registro.projects.filter((p) => p.id !== args.id) };
+    },
+    { tag: 'project-remove' },
+  );
+} catch (e) {
+  fail(e.message);
+}
 console.log(`[project-remove] baja: ${entrada.name} (${entrada.path})`);
 
 if (args.board && tableroExiste) {

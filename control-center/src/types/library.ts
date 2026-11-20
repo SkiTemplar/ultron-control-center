@@ -8,8 +8,11 @@ export type AgentCreateInput = {
   name: string;
   description: string;
   tools: string[];
+  /** Exact 5.5 ID; the backend rejects any other value (aliases are normalised). */
   model: string | null;
   body: string;
+  /** Turn cap written to the frontmatter; the backend accepts 1..=500. */
+  maxTurns: number;
   target_scope: TargetScope;
   target_project_id: string | null;
 };
@@ -24,18 +27,11 @@ export type SkillCreateInput = {
 
 // Post-install integration outcome — mirrors
 // `crate::commands::library::post_install::PostInstallReport`.
-// Returned by `analyze_local_repo` (and produced internally on every install)
-// so the UI can show "catalog synced + N detected + memory proposed".
+// Returned by `analyze_local_repo` so the UI can show the memory candidate.
 export type PostInstallReport = {
-  /** True when sync-registry.js ran and exited 0. */
-  registry_synced: boolean;
-  /** Raw JSON summary line from sync-registry, when available. */
-  registry_summary: string | null;
-  /** New skills/agents discovered on disk and added to the registry. */
-  newly_detected: number;
   /** Memory inbox candidate id awaiting approval, if any. */
   memory_candidate_id: string | null;
-  /** Non-fatal notes (missing node, dispatcher error, DB closed, …). */
+  /** Non-fatal notes (DB closed, …). */
   warnings: string[];
 };
 
@@ -46,6 +42,6 @@ export type AnalyzeRepoResult = {
   repo_path: string;
   /** Skill/agent slugs discovered on disk. */
   assets: string[];
-  /** Catalog-sync + memory-capture outcome. */
+  /** Memory-capture outcome. */
   integration: PostInstallReport;
 };

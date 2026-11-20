@@ -1,7 +1,7 @@
 // ULTRON Control Center — Projects module.
 //
 // Reads ~/.ultron/cockpit/projects.json (registry built by
-// scripts/cockpit/scan_projects.py). Exposes a flat list with the fields
+// projects/discover.rs; the Python scan_projects.py is retired). Exposes a flat list with the fields
 // the UI needs for the workspace picker + Projects tab.
 //
 // Module layout:

@@ -2,7 +2,7 @@
 
 use crate::memory::catalog;
 
-use super::orchestrate::orchestrate;
+use super::orchestrate::orchestrate as real_orchestrate;
 use super::ranking::{
     agent_sub_intent, apply_token_budget, build_prompt_plan, build_step_plans,
     inject_preferred_floor, preferred_specialists, rebalance_delegates,
@@ -10,6 +10,12 @@ use super::ranking::{
 use super::rules::{classify_intent, detect_cross_project};
 use super::types_model::{AgentChoice, SkillChoice, StepPlan};
 use crate::commands::memory::recall_unified::RecallEntry;
+
+// Los tests que llaman a `orchestrate()` usan la versión hermética de
+// `tests_brain` (brain.db temporal); el e2e ignorado usa la real a propósito.
+#[path = "tests_brain.rs"]
+mod brain;
+use brain::orchestrate;
 
 /// cat13 2026-06-10 — el paso de mejora de prompt: vago -> preguntas;
 /// concreto -> sin preguntas (caso negativo); el texto original SIEMPRE
@@ -256,9 +262,7 @@ fn mem(id: &str, tokens: i64) -> RecallEntry {
         project_id: None,
         kind: "fact".to_string(),
         score: 1.0,
-        dense_rank: None,
         sparse_rank: None,
-        dense_score: None,
         reason: String::new(),
         token_estimate: tokens,
     }
@@ -410,15 +414,14 @@ fn token_budget_is_shared_and_prioritizes_memories() {
     assert!(m.is_empty() && a.is_empty() && s.is_empty() && sp.is_empty());
 }
 
-// Real e2e: needs ultron_catalog + ultron_memory indexed (run after the
-// catalog + memory e2e). Run: cargo test --lib -- --ignored --nocapture e2e_orchestrate
+// Real e2e: needs the agent catalog on disk and a real brain.db.
+// Run: cargo test --lib -- --ignored --nocapture e2e_orchestrate
 #[test]
-#[ignore = "e2e: real catalog + memory + E5"]
+#[ignore = "e2e: real catalog + brain.db"]
 fn e2e_orchestrate_real() {
-    let ctx = orchestrate(
+    let ctx = real_orchestrate(
         "revisa el código en busca de fallos de seguridad",
         Some("ultron"),
-        true, // e2e: exercise the full semantic catalog (E5) + hybrid recall
     );
     eprintln!("\n=== ORCHESTRATE route={} ===", ctx.route);
     eprintln!("workflow: {:?}", ctx.workflow.as_ref().map(|w| &w.id));
@@ -493,7 +496,6 @@ fn orchestrate_directive_is_coherent_with_top_agent() {
     let ctx = orchestrate(
         "refactoriza el modulo de recall unificado a async sin romper el recall",
         None,
-        false,
     );
     assert_eq!(
         ctx.delegation_directive.is_some(),
@@ -525,7 +527,7 @@ fn orchestrate_directive_is_coherent_with_top_agent() {
 fn orchestrate_no_directive_for_trivial_prompt() {
     // Caso negativo (mandamiento 7): saludo -> sin directiva, sea cual sea el
     // catálogo (is_nontrivial("hola")=false e intent general no delega).
-    let ctx = orchestrate("hola", None, false);
+    let ctx = orchestrate("hola", None);
     assert!(ctx.delegation_directive.is_none());
 }
 
@@ -533,7 +535,7 @@ fn orchestrate_no_directive_for_trivial_prompt() {
 fn conversational_prompt_drops_ceremony() {
     // Recorte 2026-08-13: charla corta sin señal técnica -> sin workflow, sin
     // step_plans, sin constraints, sin encuadre (~200-300 tok/turno ahorrados).
-    let ctx = orchestrate("gracias tio, luego seguimos con lo otro", None, false);
+    let ctx = orchestrate("gracias tio, luego seguimos con lo otro", None);
     assert!(ctx.workflow.is_none(), "charla -> sin workflow");
     assert!(ctx.step_plans.is_empty(), "charla -> sin step_plans");
     assert!(ctx.constraints.is_empty(), "charla -> sin constraints");
@@ -547,7 +549,7 @@ fn conversational_prompt_drops_ceremony() {
 fn technical_prompt_keeps_ceremony() {
     // Caso negativo del recorte: un prompt técnico conserva constraints y
     // encuadre (el workflow depende del intent, no se asserta aquí).
-    let ctx = orchestrate("arregla el test roto del build de la app", None, false);
+    let ctx = orchestrate("arregla el test roto del build de la app", None);
     assert!(
         !ctx.constraints.is_empty(),
         "técnico -> constraints presentes"
@@ -575,7 +577,7 @@ fn orchestrate_excludes_delegation_for_meta_introspective() {
     // [bvaqws] Autoevaluar la sesion NO es delegable: el subagente no tiene el
     // transcript. La lista de delegados queda vacia, la directiva None, y el
     // porque queda declarado en warnings (mandamiento 11).
-    let ctx = orchestrate("autoevalúa la sesión de hoy y ponte nota", None, false);
+    let ctx = orchestrate("autoevalúa la sesión de hoy y ponte nota", None);
     assert!(
         ctx.delegate_agents.is_empty(),
         "meta/introspectivo -> 0 delegados, got {:?}",

@@ -20,8 +20,7 @@
 //      that an upstream caller (the MemoryService, the single writer) may turn
 //      into a `MemoryCandidate`. See memory/service.rs "regla de oro".
 //   3. The LLM boundary is isolated behind `call_json`, so the pure parsing /
-//      assembly logic stays unit-testable with no network, no API keys, no E5,
-//      and no Qdrant.
+//      assembly logic stays unit-testable with no network and no API keys.
 //
 // The AI Router contract (verified against the ai_router/ module):
 //   `crate::ai_router::route(zone_id: &str, prompt: &str) -> Result<String, String>`
@@ -48,7 +47,8 @@ const ZONE_REWRITE: &str = "light";
 /// (haiku primary) el 2026-07-02: el eval 1.3b midió que el 8b no sostiene el
 /// juicio 3-way (54% con el prompt viejo, 71% con el recalibrado, y 3 falsos
 /// state_update que habrían deprecado memoria válida). El volumen es bajo — el
-/// juez solo corre para candidates con vecinos dense >= 0.83.
+/// juez solo corre para candidates con vecinos FTS5 que pasan el suelo de
+/// tema (`contradiction::is_lexical_neighbour`).
 const ZONE_JUDGE: &str = "chat";
 
 /// Upper bound on facts accepted from a single extraction, to keep a runaway
@@ -498,7 +498,7 @@ fn extract_first_json_block(text: &str) -> Option<&str> {
 }
 
 // ---------------------------------------------------------------------------
-// Tests -- PURE. No network, no API keys, no Qdrant, no E5.
+// Tests -- PURE. No network, no API keys.
 //
 // We exercise the parsing seam (`parse_json_tolerant`, `extract_first_json_block`,
 // `normalize_fact`) and the always-include-original contract of `rewrite_query`

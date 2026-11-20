@@ -1,7 +1,10 @@
 // projects/registry.rs — Registry I/O helpers: load, atomic write, path helpers.
 
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
+
+use crate::file_lock::{FileLock, LOCK_STALE, LOCK_TIMEOUT};
 
 // ---------------------------------------------------------------------------
 // Process-wide write lock
@@ -15,10 +18,55 @@ use std::sync::{Mutex, OnceLock};
 // caller's point of view. Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`.
 // Pure reads (`list_projects_inner`, `load_items_for`)
 // are excluded intentionally.
+//
+// The Mutex only covers this process. The Node CLIs (`scripts/project-new.mjs`,
+// `project-socratic.mjs`, `project-remove.mjs`, through
+// `scripts/lib/projects-registry.mjs`) also rewrite projects.json, so every
+// mutator goes through `lock_registry`, which adds the cross-process file lock
+// `projects.json.lock` (`crate::file_lock`, same protocol as the kanban;
+// auditoría 2026-11-08, #12).
 static PROJECTS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-pub(crate) fn projects_lock() -> &'static Mutex<()> {
+fn projects_lock() -> &'static Mutex<()> {
     PROJECTS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Guardia de escritura del registro: el Mutex del proceso (hilos de la app) y
+/// el lock de fichero `projects.json.lock` (otros procesos: los CLI de
+/// `scripts/`). Orden fijo, Mutex y luego fichero, igual que
+/// `kanban::board_io::lock_board`. Los campos se sueltan en orden de
+/// declaración: primero el fichero y después el Mutex.
+pub(crate) struct RegistryWriteGuard {
+    _file: FileLock,
+    _mutex: MutexGuard<'static, ()>,
+}
+
+/// Toma la guardia de escritura de `registry`. Todo leer-modificar-escribir de
+/// projects.json va dentro de ella; si el lock de fichero no llega en el plazo,
+/// error explícito y no se escribe nada.
+pub(crate) fn lock_registry(registry: &Path) -> Result<RegistryWriteGuard, String> {
+    lock_registry_with(registry, LOCK_TIMEOUT, LOCK_STALE)
+}
+
+/// `lock_registry` con plazos explícitos (los tests los acortan).
+pub(crate) fn lock_registry_with(
+    registry: &Path,
+    timeout: Duration,
+    stale: Duration,
+) -> Result<RegistryWriteGuard, String> {
+    let mutex = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {e}"))?;
+    let file = FileLock::acquire_with(registry, timeout, stale)?;
+    Ok(RegistryWriteGuard {
+        _file: file,
+        _mutex: mutex,
+    })
+}
+
+/// Ruta de projects.json o error si no hay HOME.
+pub(crate) fn require_registry_path() -> Result<PathBuf, String> {
+    registry_path().ok_or_else(|| "no HOME".to_string())
 }
 
 pub(crate) fn registry_path() -> Option<PathBuf> {
@@ -41,14 +89,16 @@ pub(crate) fn atomic_write(registry: &PathBuf, content: &str) -> Result<(), Stri
 }
 
 pub(crate) fn load_registry_mut() -> Result<(PathBuf, serde_json::Value), String> {
-    let registry = dirs::home_dir()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(".ultron/cockpit/projects.json");
-    let raw =
-        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
-    let root: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let registry = require_registry_path()?;
+    let root = load_registry_at(&registry)?;
     Ok((registry, root))
+}
+
+/// Lee y parsea `registry`. Los mutadores lo llaman con `lock_registry` tomado.
+pub(crate) fn load_registry_at(registry: &Path) -> Result<serde_json::Value, String> {
+    let raw =
+        std::fs::read_to_string(registry).map_err(|e| format!("read projects.json: {}", e))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))
 }
 
 pub(crate) fn find_entry_mut<'a>(
@@ -103,4 +153,57 @@ pub(crate) fn slugify(name: &str) -> String {
         }
     }
     out.trim_matches('-').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_registry() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry = tmp.path().join("projects.json");
+        fs::write(&registry, r#"{"projects":[]}"#).expect("registro");
+        (tmp, registry)
+    }
+
+    /// El cerrojo es `projects.json.lock`, el mismo fichero que crean los CLI de
+    /// Node (`scripts/lib/projects-registry.mjs`), y se libera al soltarse.
+    #[test]
+    fn lock_registry_usa_projects_json_lock_y_lo_libera() {
+        let (_tmp, registry) = temp_registry();
+        let lock = registry.with_file_name("projects.json.lock");
+        {
+            let _g = lock_registry(&registry).expect("lock libre");
+            assert!(lock.exists(), "el .lock existe mientras se sostiene");
+        }
+        assert!(!lock.exists(), "soltar la guardia borra el .lock");
+    }
+
+    /// Caso negativo: un lock vivo de otro proceso agota el plazo con error.
+    #[test]
+    fn lock_registry_con_lock_vivo_ajeno_falla_con_error() {
+        let (_tmp, registry) = temp_registry();
+        let lock = registry.with_file_name("projects.json.lock");
+        fs::write(&lock, r#"{"pid":0,"token":"ajeno"}"#).expect("lock ajeno");
+        let err = lock_registry_with(&registry, Duration::from_millis(150), LOCK_STALE)
+            .err()
+            .expect("no debe adquirir un lock vivo ajeno");
+        assert!(err.contains("projects.json bloqueado"), "{err}");
+        assert!(lock.exists(), "no borra el lock ajeno");
+    }
+
+    /// Un lock huérfano (proceso muerto, mtime de hace más de `LOCK_STALE`) no
+    /// bloquea para siempre: se rompe y se adquiere.
+    #[test]
+    fn lock_registry_rompe_un_lock_huerfano() {
+        let (_tmp, registry) = temp_registry();
+        let lock = registry.with_file_name("projects.json.lock");
+        let f = fs::File::create(&lock).expect("lock huérfano");
+        f.set_modified(std::time::SystemTime::now() - Duration::from_secs(20))
+            .expect("mtime");
+        drop(f);
+        let _g = lock_registry_with(&registry, Duration::from_millis(300), LOCK_STALE)
+            .expect("un lock de 20 s es rancio y se rompe");
+    }
 }

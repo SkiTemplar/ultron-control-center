@@ -502,13 +502,11 @@ fn extraction_prompt(transcript: &str) -> String {
     };
     format!(
         "Extrae como mucho {MAX_FACTS} hechos DURADEROS y reutilizables de esta sesion \
-         (decisiones tecnicas, preferencias del usuario, hechos del proyecto, restricciones, \
-         o identidad/rol estable del usuario). \
-         Ignora lo efimero. Una linea por hecho, formato exacto:\n\
+         (decisiones tecnicas, preferencias del usuario, hechos del proyecto, restricciones). \
+         Ignora lo efimero y no describas quien es el usuario ni su rol. \
+         Una linea por hecho, formato exacto:\n\
          TIPO | titulo corto | resumen de una frase | importancia | ORIGEN\n\
-         donde TIPO es uno de: decision, preference, fact, constraint, task, user_profile; \
-         usa user_profile SOLO para identidad/rol/forma-de-trabajar ESTABLE del usuario \
-         (quien es, a que se dedica, como prefiere trabajar), no para gustos puntuales (eso es preference); \
+         donde TIPO es uno de: decision, preference, fact, constraint, task; \
          importancia es un numero entre 0 y 1 que refleja cuan importante y duradero \
          es el hecho (las decisiones y restricciones suelen ser altas, los resumenes bajos); \
          y ORIGEN es `user` si el hecho lo afirmo, eligio o confirmo el usuario en sus turnos \
@@ -553,6 +551,13 @@ fn parse_facts(resp: &str) -> Vec<Fact> {
             continue;
         }
         let kind = MemoryType::parse(&parts[0].to_lowercase()).unwrap_or(MemoryType::Fact);
+        // Retirado de la autocaptura (2026-11-13): de 105 `user_profile` activos,
+        // la mayoría eran duplicados (el nombre del usuario x5) o roles inventados a
+        // partir de una sola sesión. El perfil vive en el Retrato
+        // (scripts/memory-portrait.mjs), que el usuario confirma o descarta.
+        if kind == MemoryType::UserProfile {
+            continue;
+        }
         // El modelo a veces omite el resumen y mete el hecho entero en el título:
         // `preference | <hecho> | 0.6 | user` (candidatos d89295a5 y 3d51609d,
         // 2026-09-25, guardados con "0.6" como contenido). Si el tercer campo es

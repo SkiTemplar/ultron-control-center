@@ -3,6 +3,8 @@
 export type SettingsSnapshot = {
   path: string;
   content: Record<string, unknown>;
+  /** Huella de los bytes leídos; `settings_save` la exige como `expectedHash`. */
+  content_hash: string;
   modified: string | null;
   size_bytes: number;
   backup_dir: string;

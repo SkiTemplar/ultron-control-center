@@ -480,7 +480,7 @@ fn el_merge_respeta_una_entrada_editada_por_el_operador() {
 
 /// Verificacion en runtime contra los ficheros reales de esta maquina. Fuera
 /// de la suite porque escribe en cockpit/ai-router/. Ejecutar a mano con:
-/// `cargo test --features qdrant repara_el_router_real -- --ignored --nocapture`
+/// `cargo test repara_el_router_real -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn repara_el_router_real_de_esta_maquina() {

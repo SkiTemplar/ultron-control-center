@@ -10,8 +10,12 @@ pub async fn settings_read() -> Result<settings::SettingsSnapshot, String> {
 #[tauri::command]
 pub async fn settings_save(
     content: serde_json::Value,
+    expected_hash: String,
 ) -> Result<settings::SettingsSaveResult, String> {
-    settings::settings_save_inner(settings::SettingsSavePayload { content })
+    settings::settings_save_inner(settings::SettingsSavePayload {
+        content,
+        expected_hash,
+    })
 }
 
 #[tauri::command]

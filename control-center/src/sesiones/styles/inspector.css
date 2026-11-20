@@ -15,10 +15,10 @@
 /* En el inspector el diff se ajusta a la columna en vez de cortarse por la derecha. */
 .ipane .diff div { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .note { font-size: 12px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; }
-.callout { border: 1px solid var(--line); background: var(--info-soft); border-radius: 8px; padding: 9px 12px; font-size: 12.5px; }
-.callout b { color: var(--info); font-weight: 600; }
-.callout.warn { background: var(--warn-soft); }
-.callout.warn b { color: var(--warn); }
+.insp-callout { border: 1px solid var(--line); background: var(--info-soft); border-radius: 8px; padding: 9px 12px; font-size: 12.5px; }
+.insp-callout b { color: var(--info); font-weight: 600; }
+.insp-callout.warn { background: var(--warn-soft); }
+.insp-callout.warn b { color: var(--warn); }
 
 /* Árbol de agentes */
 .tree { display: flex; flex-direction: column; gap: 8px; }

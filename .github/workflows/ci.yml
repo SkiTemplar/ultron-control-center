@@ -73,14 +73,14 @@ jobs:
   # paralelos el wall queda en max(job) ~190-260s. No re-fusionar. Cada job
   # lleva su PROPIO cache Swatinem (shared-key distinto: sus target/ divergen —
   # clippy solo emite .rmeta del crate local, test paga codegen+link del
-  # harness) y AMBOS llevan el cache ort-dfbin porque fastembed/ort compila en
-  # los dos. Cuota: los dos caches cargo suman ~4GB sobre los 10GB del repo
+  # harness). Desde el 2026-11-14 no hay fastembed/ort que compilar ni cachear
+  # (ruta densa retirada). Cuota: los dos caches cargo suman ~4GB sobre los 10GB del repo
   # (publish-tauri usa ~1.5GB) — aceptado en la decision.
   cargo-clippy:
     name: Rust (cargo clippy)
     runs-on: windows-latest
     # 30: un run frio (shared-key recien estrenado o fingerprint invalidado)
-    # roza ~25 min compilando fastembed/ort/tauri desde cero; en caliente el
+    # roza ~25 min compilando tauri desde cero; en caliente el
     # job queda ~4 min. Holgura, no la norma.
     timeout-minutes: 30
     # CARGO_INCREMENTAL=0: in CI (clean tree + restored cache) incremental mode
@@ -124,7 +124,7 @@ jobs:
           components: clippy
 
       - name: Cache cargo registry + build artifacts
-        # cache-on-failure: true ensures fastembed/ort artefacts built during
+        # cache-on-failure: true ensures dependency artefacts built during
         # a clippy-failing run are still stored, so the next push (fix commit)
         # doesn't start from zero.  shared-key pins the cache to this job so
         # the key is stable across Cargo.lock-only changes (Swatinem already
@@ -146,59 +146,6 @@ jobs:
           save-if: ${{ job.status != 'cancelled' }}
           shared-key: cargo-clippy-profile
 
-      - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
-        # CI ROJO 2026-07-02 root-cause: ort-sys (via fastembed) descarga la lib
-        # estatica onnxruntime a %LOCALAPPDATA%\dfbin — fuera de target/ y de
-        # ~/.cargo, asi que NINGUN cache la preservaba — y su build script no
-        # emite rerun-if-changed sobre ese dir. rust-cache restauraba target/
-        # con el output del build script apuntando al path absoluto de OTRA VM
-        # -> en la VM fresca no existe -> rustc: "could not find native static
-        # library onnxruntime" en cuanto algo fuerza recompilar ort-sys. Cachear
-        # dfbin lo resucita en el MISMO path absoluto (el usuario runneradmin es
-        # fijo en windows-latest), y el -L restaurado vuelve a ser valido.
-        # Key COMPARTIDA con cargo-test a proposito (mismo contenido, ahorra
-        # cuota); en un miss ambos jobs intentan guardar y el segundo recibe un
-        # warning inocuo de "cache already exists", no es fallo.
-        id: ort-dfbin
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          # Path REAL verificado contra el vendored dirs.rs de ort-sys y el disco
-          # local: cache_dir() = %LOCALAPPDATA%\ort.pyke.io (PYKE_ROOT) y dfbin
-          # cuelga DE AHI — cachear ~/AppData/Local/dfbin a secas nunca salvaba
-          # nada ("Path Validation Error" en runs 28653104441/28655076253; el
-          # verde venia del self-heal re-descargando). Forward slashes: con `~\`
-          # actions/cache tampoco expande el home.
-          path: ~/AppData/Local/ort.pyke.io/dfbin
-          key: ort-dfbin-${{ runner.os }}-${{ hashFiles('control-center/src-tauri/Cargo.lock') }}
-
-      - name: Self-heal ort-sys on dfbin cache miss
-        # Sin dfbin restaurado, el fingerprint "fresh" del build script de
-        # ort-sys es veneno permanente: la clave de rust-cache ya existe (las
-        # caches de GH son inmutables) y nunca se re-guarda saneada. Purgar
-        # build/ + .fingerprint/ de ort-sys fuerza el re-run del build script,
-        # que re-descarga onnxruntime a ESTA VM -> -L valido. Solo corre en
-        # miss (primera vez o Cargo.lock nuevo); en hit el paso anterior ya
-        # dejo vivo el path y no se recompila nada.
-        if: steps.ort-dfbin.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          # OJO: Get-ChildItem con wildcard en -Path + -Filter devuelve VACIO
-          # (no-op silencioso, verificado en local 2026-07-03) — enumerar los
-          # dirs de perfil explicitamente y contar lo borrado.
-          $purged = 0
-          $target = "control-center\src-tauri\target"
-          foreach ($profileDir in (Get-ChildItem $target -Directory -ErrorAction SilentlyContinue)) {
-            foreach ($sub in @("build", ".fingerprint")) {
-              $p = Join-Path $profileDir.FullName $sub
-              if (Test-Path $p) {
-                $hits = Get-ChildItem $p -Directory -Filter "ort-sys-*"
-                $purged += @($hits).Count
-                $hits | Remove-Item -Recurse -Force
-              }
-            }
-          }
-          Write-Host "ort-sys purge: $purged dir(s) eliminados (0 = target frio, tambien valido)."
-
       - name: cargo clippy (compiles + lints; -D warnings = gate duro)
         # --profile test: herencia del job pre-split, donde alineaba los rustc
         # flags de clippy con los de `cargo test` para compartir target/. Con
@@ -208,7 +155,7 @@ jobs:
         # artefactos ya cacheado/medido.
         # --lib --bins mirrors what `cargo test` tests so clippy's scope is
         # identical — avoids compiling integration-test stubs that cargo test
-        # doesn't use (those live under tests/ and require a live Qdrant).
+        # doesn't use (there is no tests/ directory today).
         working-directory: control-center/src-tauri
         run: cargo clippy --lib --bins --profile test -- -D warnings
 
@@ -274,44 +221,10 @@ jobs:
           save-if: ${{ job.status != 'cancelled' }}
           shared-key: cargo-test-profile
 
-      - name: Cache ONNX Runtime prebuilt (ort-sys dfbin)
-        # Necesario tambien aqui: fastembed/ort compila en ambos jobs Rust.
-        # Historia completa (CI ROJO 2026-07-02, path PYKE_ROOT verificado,
-        # key compartida entre jobs) en el step homologo de cargo-clippy.
-        id: ort-dfbin
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/AppData/Local/ort.pyke.io/dfbin
-          key: ort-dfbin-${{ runner.os }}-${{ hashFiles('control-center/src-tauri/Cargo.lock') }}
-
-      - name: Self-heal ort-sys on dfbin cache miss
-        # Mismo self-heal que en cargo-clippy (razonamiento completo alli):
-        # sin dfbin, purgar build/ + .fingerprint/ de ort-sys fuerza el re-run
-        # del build script que re-descarga onnxruntime a ESTA VM.
-        if: steps.ort-dfbin.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          # OJO: Get-ChildItem con wildcard en -Path + -Filter devuelve VACIO
-          # (no-op silencioso, verificado en local 2026-07-03) — enumerar los
-          # dirs de perfil explicitamente y contar lo borrado.
-          $purged = 0
-          $target = "control-center\src-tauri\target"
-          foreach ($profileDir in (Get-ChildItem $target -Directory -ErrorAction SilentlyContinue)) {
-            foreach ($sub in @("build", ".fingerprint")) {
-              $p = Join-Path $profileDir.FullName $sub
-              if (Test-Path $p) {
-                $hits = Get-ChildItem $p -Directory -Filter "ort-sys-*"
-                $purged += @($hits).Count
-                $hits | Remove-Item -Recurse -Force
-              }
-            }
-          }
-          Write-Host "ort-sys purge: $purged dir(s) eliminados (0 = target frio, tambien valido)."
-
       - name: cargo test (unit, lib only)
         # El coste real de este job es el codegen+link del binario del
         # test-harness del crate local (~237 s hot para los 509 tests): el
-        # cache restaura las DEPS (fastembed/ort/tauri) calientes, pero ese
+        # cache restaura las DEPS (tauri y resto) calientes, pero ese
         # link siempre se paga. El [profile.test] tuning de Cargo.toml
         # (debug=0 -> sin PDB, codegen-units=16) lo recorta. --profile test es
         # el default de cargo test; explicito para que se vea que comparte
@@ -319,11 +232,11 @@ jobs:
         #
         # cat12: dropped `--bins` here. The ultron-memory bin
         # carries NO `#[test]` (verified: it runs 0 tests), so `--bins` only
-        # added an extra heavy LINK step (links fastembed/ort/tauri) for
+        # added an extra heavy LINK step (links tauri) for
         # zero coverage. The cargo-clippy job still compiles+lints `--lib --bins`,
         # so the bin is still gated for compilation — only its redundant
         # test-link is gone. Trims the Rust wall toward the <300 s target without
-        # losing any assertion. tests/ stay excluded (they need a live Qdrant/sidecar).
+        # losing any assertion. there are no integration tests under tests/.
         working-directory: control-center/src-tauri
         run: cargo test --lib --profile test ${{ matrix.args }}
 
@@ -402,41 +315,6 @@ jobs:
       - name: Unit tests (vitest)
         working-directory: control-center
         run: npx vitest run --shard=${{ matrix.shard }}/3
-
-  routing-dispatcher:
-    name: Routing dispatcher loads (syntax + require chain)
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    # 2.5(b): hasta hoy CI NO validaba NADA del dispatcher de skills, así que un
-    # v2/v3 roto (sintaxis o un require movido — p.ej. el cliente del daemon E5
-    # que v3 importa) dejaba el hook UserPromptSubmit muerto y TODOS los prompts
-    # sin routing, en silencio. Dos gates PORTABLES (no tocan ~/.claude del
-    # usuario): (1) la cadena del dispatcher carga; (2) accuracy@3 == 100% sobre
-    # los 21 casos representativos. El acc@3 es e2e y determinista porque esos
-    # casos resuelven de las tablas PERSONAS/PLUGINS/AGENTS de v2 (verificado:
-    # 21/21 con un árbol de descubrimiento VACÍO), así que ULTRON_ROUTING_FIXTURES
-    # apuntando a un dir vacío hace el harness portable sin fixtures de skills.
-    steps:
-      - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Set up Node 22
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: '22'
-      - name: Dispatcher loads (syntax + require chain)
-        run: |
-          node --check cockpit/skill-lazy/routing-dispatcher.v2.js
-          node --check cockpit/skill-lazy/routing-dispatcher.v3.js
-          node --check hooks/scripts/lib/ultron-memory-cli.js
-          node -e "require('./cockpit/skill-lazy/routing-dispatcher.v2.js'); require('./cockpit/skill-lazy/routing-dispatcher.v3.js'); require('./hooks/scripts/lib/ultron-memory-cli.js'); console.log('routing dispatcher require chain OK');"
-      - name: accuracy@3 gate (deterministic table-based ranker)
-        run: |
-          # _accuracy_at3.js exits 1 if acc@3 < 100% -> a ranker regression fails
-          # CI. ULTRON_ROUTING_FIXTURES at an empty dir makes the candidate
-          # discovery (normally ~/.claude/skills + ECC cache) portable, while the
-          # 21 representative cases still resolve from v2's hardcoded tables.
-          mkdir -p "${RUNNER_TEMP}/ultron-route-fixtures"
-          ULTRON_ROUTING_FIXTURES="${RUNNER_TEMP}/ultron-route-fixtures" node cockpit/skill-lazy/_accuracy_at3.js
 
   hook-selftests:
     # 2026-11-02: delegate.selftest (188 s en el runner) va en su propio job; el resto conserva
@@ -527,10 +405,10 @@ jobs:
 
   # tests/ (pytest) quedo versionado pero sin job desde la limpieza del
   # 2026-06-04; el comentario que lo daba por archivado era falso. Vuelve
-  # (2026-10-08) con solo pytest + pyyaml: los tests cubren scan_projects,
-  # audit_personal_data, la superficie estatica de embed_skills y que
+  # (2026-10-08) con solo pytest + pyyaml: los tests cubren
+  # audit_personal_data y que
   # templates/settings-hooks.json solo cite scripts versionados. No necesitan
-  # Qdrant ni modelos (verificado con un entorno aislado: 61 passed).
+  # servicios ni modelos (verificado con un entorno aislado: 61 passed).
   python-tests:
     name: Python tests (pytest tests/)
     runs-on: windows-latest

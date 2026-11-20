@@ -6,7 +6,7 @@ use crate::memory::{Scope, Status};
 
 // Temporal resolver (point 3): an ACTIVE item whose validity ENDED in the
 // past must be excluded from the pack, while an item with valid_to NULL (no
-// end) OR a FUTURE valid_to is injected. Unit-tested without Qdrant/E5.
+// end) OR a FUTURE valid_to is injected. Unit-tested hermetically.
 #[test]
 fn assemble_pack_excludes_items_whose_validity_ended() {
     use crate::memory::model::{now_millis, MemoryItem};
@@ -42,9 +42,7 @@ fn assemble_pack_excludes_items_whose_validity_ended() {
         .map(|(i, id)| FusedHit {
             canonical_id: (*id).clone(),
             rrf_score: 1.0 - i as f32 * 0.01,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.5),
         })
         .collect();
 
@@ -73,7 +71,7 @@ fn assemble_pack_excludes_items_whose_validity_ended() {
 // excluded from the pack; `expires_at` NULL (no TTL) or a FUTURE expiry inject
 // normally. Negative case: without the engine TTL filter the expired item leaks
 // into recall (mandamiento 12 — expired data polluting context). Same millis
-// basis as valid_to/now_millis(). Unit-tested without Qdrant/E5.
+// basis as valid_to/now_millis(). Unit-tested hermetically.
 #[test]
 fn assemble_pack_excludes_expired_ttl_items() {
     use crate::memory::model::{now_millis, MemoryItem};
@@ -109,9 +107,7 @@ fn assemble_pack_excludes_expired_ttl_items() {
         .map(|(i, id)| FusedHit {
             canonical_id: (*id).clone(),
             rrf_score: 1.0 - i as f32 * 0.01,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.5),
         })
         .collect();
 

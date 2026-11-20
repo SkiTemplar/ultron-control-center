@@ -8,8 +8,12 @@ describe("temas", () => {
     localStorage.clear();
   });
 
-  it("hay siete temas, Acero es el de por defecto y los tres primeros van en negro puro", () => {
-    expect(THEMES.map((t) => t.id)).toEqual(["obsidiana", "vacio", "fosforo", "acero", "grafito", "medianoche", "ambar"]);
+  it("hay doce temas sin nombres repetidos, Acero es el de por defecto y los tres primeros van en negro puro", () => {
+    expect(THEMES.map((t) => t.id)).toEqual([
+      "obsidiana", "vacio", "fosforo", "acero", "grafito", "medianoche", "ambar",
+      "bosque", "vino", "pizarra", "carbon", "neon",
+    ]);
+    expect(new Set(THEMES.map((t) => t.label)).size).toBe(THEMES.length);
     expect(DEFAULT_THEME).toBe("acero");
     for (const id of ["obsidiana", "vacio", "fosforo"]) {
       expect(THEMES.find((t) => t.id === id)?.tokens.bg).toBe("#000000");
@@ -37,12 +41,11 @@ describe("temas", () => {
     expect(root.getAttribute("data-theme")).toBe("fosforo");
     expect(root.style.getPropertyValue("--accent")).toBe(getTheme("fosforo").tokens.accent);
     expect(root.style.getPropertyValue("--accent-fg")).toBe(getTheme("fosforo").tokens.accentFg);
-    expect(root.style.getPropertyValue("--f-chat")).toBe("var(--f-mono)");
     applyTheme("obsidiana");
     expect(root.style.getPropertyValue("--accent")).toBe(getTheme("obsidiana").tokens.accent);
     expect(root.style.getPropertyValue("--gemini")).toBe(getTheme("obsidiana").tokens.gemini);
-    // E2: el chat va en monoespaciada en todos los temas.
-    expect(root.style.getPropertyValue("--f-chat")).toBe("var(--f-mono)");
+    // La fuente del chat no es cosa del tema (fonts.ts): cambiar de tema no la pisa.
+    expect(root.style.getPropertyValue("--f-chat")).toBe("");
     expect(document.querySelectorAll("style").length).toBe(0);
   });
 

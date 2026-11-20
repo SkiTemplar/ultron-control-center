@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as P from "./predicates.mjs";
-import { CC, CC_TAURI, CLAUDE, COCKPIT, HOOKS_MANIFEST, HOOKS_SCRIPTS, REPO, SETTINGS_JSON, ULTRON, cat, fileExists, grepInFiles, hooksText, readJSON, run } from "./core.mjs";
+import { CC, CC_TAURI, CLAUDE, COCKPIT, HOOKS_SCRIPTS, REPO, SETTINGS_JSON, ULTRON, cat, fileExists, grepInFiles, readJSON, run } from "./core.mjs";
 
 // ---------------------------------------------------------------------------
 // CAT 15 — Observabilidad
@@ -261,28 +261,8 @@ cat(17, "Calidad de compactacion", [
       return { pass: r.ok, detail: r.ok ? "presente y syntax OK" : r.stderr.slice(0, 100) };
     },
   },
-  {
-    id: "17.3",
-    retiredBy: "cowork-retired", // 2026-10-28: fallaba por diseno: el plugin que empaquetaba el hook esta borrado
-    desc: "session-end-summary.js (candidatos por sesion) existe, compila Y esta cableado en settings.json o hooks/manifest.json",
-    auto: true,
-    check() {
-      // Existir y compilar no es producir candidatos: el script no esta en
-      // settings.json (solo lo empaqueta Cowork) y daba verde (hooks-2).
-      const script = join(HOOKS_SCRIPTS, "session-end-summary.js");
-      const exists = fileExists(script);
-      if (!exists) return { pass: false, detail: "session-end-summary.js no existe" };
-      const r = run(`node --check "${script}" 2>&1`);
-      if (!r.ok) return { pass: false, detail: r.stderr.slice(0, 100) };
-      const wiredIn = [["settings.json", hooksText(SETTINGS_JSON)], ["hooks/manifest.json", hooksText(HOOKS_MANIFEST)]]
-        .filter(([, t]) => t && /session-end-summary\.js/.test(t))
-        .map(([l]) => l);
-      return {
-        pass: wiredIn.length > 0,
-        detail: wiredIn.length ? `syntax OK y cableado en ${wiredIn.join(", ")}` : "syntax OK pero SIN cablear: ni settings.json ni hooks/manifest.json lo lanzan",
-      };
-    },
-  },
+  // [17.3 retirado 2026-11-14 · cowork-retired] medía que session-end-summary.js
+  // estuviera cableado; el script se borró con el plugin que lo empaquetaba.
   // [17.4 retirado 2026-07-01 · cat20.3] "decisions-pending.jsonl existe (pipeline
   // activo)" premiaba el SINTOMA: el sink nunca tuvo consumidor en src-tauri. El
   // pipeline se enterro (redundante con `ultron-memory capture` -> inbox gobernado).

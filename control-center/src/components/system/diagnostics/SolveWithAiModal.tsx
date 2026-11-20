@@ -23,7 +23,7 @@ export function SolveWithAiModal({
         <textarea
           value={problem}
           onChange={(e) => onProblemChange(e.target.value)}
-          placeholder="p. ej.: Qdrant no arranca, la sesión de Claude se abre y se cierra al momento…"
+          placeholder="p. ej.: el recall no devuelve nada, la sesión de Claude se abre y se cierra al momento…"
           rows={5}
           className="w-full rounded p-2 text-[12.5px]"
           style={{ background: "var(--color-surface-1)", color: "var(--color-text)", border: "1px solid var(--color-border)", outline: "none", resize: "vertical" }}

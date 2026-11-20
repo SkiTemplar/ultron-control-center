@@ -5,11 +5,10 @@
 // golden_set.json, 942 positives each carrying `expect_ids`). It mirrors the
 // design discipline of `evals.rs` (`EvalReport::from_results`, `classify_leaks`):
 //
-//   - EVERY function here is PURE: no I/O, no Qdrant, no E5, no network, no
-//     brain.db. Given a ranking (an ordered `&[String]` of retrieved ids) and
+//   - EVERY function here is PURE: no I/O, no network, no brain.db. Given a ranking (an ordered `&[String]` of retrieved ids) and
 //     the set of relevant ids (`&HashSet<String>`), it returns a metric. That
-//     makes the whole module testable with `cargo test --no-default-features
-//     --lib eval_metrics` (no `qdrant` feature, no sidecar, no DB).
+//     makes the whole module testable with `cargo test --lib eval_metrics`
+//     (no sidecar, no DB).
 //   - Division-by-zero is guarded everywhere: empty `k`, empty relevant set,
 //     or empty ranking yield well-defined `0.0` (never `NaN`).
 //   - Binary relevance: an id is either relevant (in `relevant`) or not. This

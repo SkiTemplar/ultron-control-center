@@ -185,30 +185,6 @@
   "3.7": {
    "area": "delegation"
   },
-  "4.1": {
-   "area": "codegraph-skills",
-   "retiredBy": "dispatcher-off"
-  },
-  "4.2": {
-   "area": "codegraph-skills",
-   "retiredBy": "dispatcher-off"
-  },
-  "4.3": {
-   "area": "codegraph-skills",
-   "retiredBy": "dispatcher-off"
-  },
-  "4.4": {
-   "area": "codegraph-skills",
-   "retiredBy": "dispatcher-off"
-  },
-  "4.5": {
-   "area": "codegraph-skills",
-   "retiredBy": "dispatcher-off"
-  },
-  "4.6": {
-   "area": "codegraph-skills",
-   "retiredBy": "dispatcher-off"
-  },
   "4.7": {
    "area": "codegraph-skills"
   },
@@ -233,10 +209,6 @@
   },
   "5.3": {
    "area": "hygiene"
-  },
-  "5.4": {
-   "area": "hygiene",
-   "retiredBy": "dispatcher-off"
   },
   "5.5": {
    "area": "hygiene"
@@ -346,9 +318,6 @@
   "9.11": {
    "area": "hooks"
   },
-  "10.1": {
-   "area": "hygiene"
-  },
   "10.2": {
    "area": "ui"
   },
@@ -423,9 +392,6 @@
   "13.2": {
    "area": "ui"
   },
-  "13.3": {
-   "area": "ui"
-  },
   "13.4": {
    "area": "ui",
    "manualByDesign": true
@@ -435,9 +401,6 @@
   },
   "14.2": {
    "area": "hygiene"
-  },
-  "14.3": {
-   "area": "ui"
   },
   "14.4": {
    "area": "ui",
@@ -509,10 +472,6 @@
   "17.2": {
    "area": "hygiene"
   },
-  "17.3": {
-   "area": "hooks",
-   "retiredBy": "cowork-retired"
-  },
   "17.5": {
    "area": "hooks"
   },
@@ -576,30 +535,6 @@
   },
   "21.4": {
    "area": "memory"
-  },
-  "22.1": {
-   "area": "delegation",
-   "retiredBy": "orchestrate-light"
-  },
-  "22.2": {
-   "area": "delegation",
-   "retiredBy": "orchestrate-light"
-  },
-  "22.3": {
-   "area": "delegation",
-   "retiredBy": "orchestrate-light"
-  },
-  "22.4": {
-   "area": "delegation",
-   "retiredBy": "orchestrate-light"
-  },
-  "22.5": {
-   "area": "delegation",
-   "retiredBy": "orchestrate-light"
-  },
-  "22.6": {
-   "area": "delegation",
-   "retiredBy": "orchestrate-light"
   },
   "22.7": {
    "area": "hooks",

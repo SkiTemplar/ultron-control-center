@@ -1,5 +1,5 @@
 ' bitacora-sweep-hidden.vbs - lanza bitacora-sweep.mjs con la ventana
-' TOTALMENTE oculta (vbHide). Mismo patron que qdrant-watchdog-hidden.vbs:
+' TOTALMENTE oculta (vbHide). Mismo patron que el antiguo watchdog de Qdrant:
 ' "powershell -WindowStyle Hidden" desde el task scheduler sigue flasheando
 ' una consola ~300ms; wscript.exe es windowless y Shell.Run con 0 no.
 '

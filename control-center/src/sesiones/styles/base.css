@@ -5,6 +5,7 @@
   --f-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
   --f-body: "Geist Variable", "Segoe UI", system-ui, sans-serif;
   --f-mono: "Geist Mono Variable", "Cascadia Code", Consolas, monospace;
+  --f-chat: var(--f-mono);
   --r: 8px;
 }
 
@@ -202,3 +203,7 @@ button:disabled { cursor: default; opacity: .45; }
 .theme-card .sw i:nth-child(2) { background: var(--sw-panel); }
 .theme-card .sw i:nth-child(3) { background: var(--sw-accent); }
 .theme-card .nm { font-size: 12.5px; }
+.font-card { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); text-align: left; font-family: var(--fc-family); }
+.font-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.font-card .smp { font-size: 15px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.font-card .nm { font-size: 12px; color: var(--muted); font-family: var(--f-body); }

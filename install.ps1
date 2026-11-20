@@ -10,13 +10,11 @@
     1.  Preflight     - OS, PowerShell, RAM, disk, internet
     2.  Claude Code   - hard requirement; refuse to continue if missing
     3.  uv            - auto-install if missing
-    4.  Qdrant        - native Windows binary, no Docker, into ~/.ultron/qdrant-native/
     5.  Dir layout    - ~/.ultron, ~/.ultron-vault, ~/.claude/skills
     7.  Hooks         - merge templates/settings-hooks.json into settings.json
     8.  Skills picker - install core skills, prompt one-by-one for personal
     8c. Feature flags - writes ~/.ultron/cockpit/features.json (visibility)
     8d. Opt-out purge - delete files for unchecked wizard features (v15.3.5+)
-    9.  brain_index   - initialize SQLite FTS5 index
     10. Control Center- npm install + tauri build (optional, -NoApp skips)
     11. Verification  - run scripts/cockpit/doctor.py if present
 
@@ -33,12 +31,6 @@
 .PARAMETER NoApp
   Skip the control-center build (steps 10). Useful on machines without
   Rust toolchain or for headless installs.
-
-.PARAMETER NoDocker
-  Skip the Qdrant native binary step. Semantic recall over the vault is
-  then disabled. The flag name is historical - ULTRON has not used
-  Docker since v15.0.2; Qdrant runs as a native Windows binary fetched
-  from the official GitHub releases.
 
 .PARAMETER InstallRoot
   Override the install root. Defaults to "$env:USERPROFILE\.ultron".
@@ -89,7 +81,6 @@
 param(
     [switch]$NonInteractive,
     [switch]$NoApp,
-    [switch]$NoDocker,
     [switch]$Force,
     # Visual installer wizard (WinForms). Default ON. -Cli forces the legacy
     # CLI Read-Host flow that this script always had. -NonInteractive also
@@ -115,8 +106,8 @@ param(
     # components run. Without these switches the behaviour is exactly the
     # historical one (wizard / CLI prompts / legacy flags).
     #   -All    : core + skills + tones + agents
-    #   -Core   : app (npm install) + memory (Qdrant, brain_index, sidecar,
-    #             venv) + hooks (settings.json merge) + base layout/templates
+    #   -Core   : app (npm install) + memory (sidecar, venv)
+    #             + hooks (settings.json merge) + base layout/templates
     #   -Skills : core skills from the repo skills/ dir (manifest picker set)
     #   -Tones  : tone seeds check for ~/.ultron/personality.json (the seeds
     #             ship compiled inside the app/sidecar; an existing local
@@ -140,7 +131,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------------------------------------------------
 # Constants and state
 # ----------------------------------------------------------------------
-$Script:VersionFallback = "v15.7.0"
+$Script:VersionFallback = "v15.9.0"
 $Script:RepoRoot        = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $Script:Warnings        = New-Object System.Collections.Generic.List[string]
 $Script:Errors          = New-Object System.Collections.Generic.List[string]
@@ -306,10 +297,10 @@ function Show-InstallWizard {
         Write-Warn2 ("could not save install profile: " + $_.Exception.Message)
     }
 
-    # Build-ControlCenter, Install-QdrantNative, Set-FeatureFlags etc. all
+    # Build-ControlCenter, Set-FeatureFlags etc. all
     # read from $Script:Selections via Get-Choice. We deliberately do NOT
-    # rewrite $NoApp / $NoDocker - those legacy CLI flags are still
-    # respected at their own check points, and inferring them from the
+    # rewrite $NoApp - that legacy CLI flag is still
+    # respected at its own check point, and inferring them from the
     # wizard would muddle precedence rules.
     $picked = ($Script:Selections.Keys | Where-Object { $_ -notmatch '^_' -and $Script:Selections[$_] }).Count
     Write-OK ("wizard: " + $picked + " items selected")
@@ -749,126 +740,6 @@ function Test-OrInstall-MsvcLinker {
 }
 
 # ----------------------------------------------------------------------
-# (Removed v15.5.10 / review R6 #2)
-#
-# The Test-Docker + Initialize-Qdrant functions used to provision Qdrant
-# via Docker Desktop. They have been replaced by Install-QdrantNative
-# (below) since v15.0.2, which downloads the native Windows binary
-# straight from qdrant/qdrant releases - no daemon, no container.
-#
-# The dead Docker functions were still defined in this script even though
-# the main flow never called them, which confused contributors reading
-# the source ("does ULTRON depend on Docker?"). Deleted in v15.5.10.
-# The -NoDocker flag is kept as a historical alias for "skip Qdrant".
-
-# ----------------------------------------------------------------------
-# Step 4 (new): Qdrant native Windows binary (no Docker)
-#
-# Qdrant is a core ULTRON capability - without it, semantic recall over
-# the vault is disabled. We ship the *native* Windows binary fetched from
-# the official GitHub releases; no Docker daemon, no container runtime.
-#
-# Install path: ~/.ultron/qdrant-native/qdrant.exe
-# Config:       ~/.ultron/qdrant-native/config/production.yaml (minimal default)
-# Boot:         ensure-qdrant.ps1 launches it on SessionStart and from
-#               the ULTRON-QdrantBoot scheduled task.
-# ----------------------------------------------------------------------
-function Install-QdrantNative {
-    Write-Step "4. Qdrant native (no Docker)"
-    if ($NoDocker) {
-        Write-Skip "Skipped via -NoDocker (kept for backwards compat - Qdrant is native, not Docker)"
-        return
-    }
-    if (-not (Get-Choice -Id "mem_qdrant" -Default $true)) {
-        Write-Skip "Qdrant unchecked in wizard - semantic recall will be disabled"
-        return
-    }
-
-    $nativeDir = Join-Path $env:USERPROFILE ".ultron\qdrant-native"
-    $exe = Join-Path $nativeDir "qdrant.exe"
-    $cfgDir = Join-Path $nativeDir "config"
-    $cfg = Join-Path $cfgDir "production.yaml"
-
-    if (Test-Path -LiteralPath $exe) {
-        try {
-            $size = (Get-Item -LiteralPath $exe).Length
-            Write-OK ("qdrant.exe already present (" + [Math]::Round($size/1MB) + " MB)")
-        } catch {
-            Write-OK "qdrant.exe already present"
-        }
-    } else {
-        Write-V "Downloading Qdrant v1.18.0 Windows binary..."
-        if (-not (Test-Path -LiteralPath $nativeDir)) {
-            New-Item -ItemType Directory -Path $nativeDir -Force | Out-Null
-        }
-        $zipUrl = "https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-pc-windows-msvc.zip"
-        $zipPath = Join-Path $env:TEMP "qdrant-windows.zip"
-        # CC-06 hardening: pin the SHA256 of the upstream Windows release zip
-        # so a MITM / compromised mirror cannot drop a different binary on
-        # us. Hash captured 2026-05-17 from the official GitHub release
-        # asset (29,652,104 bytes, recompute with:
-        #   Get-FileHash qdrant-x86_64-pc-windows-msvc.zip -Algorithm SHA256
-        # when bumping the version). Mismatch = wipe + throw, no extract.
-        $expectedSha = "B69196D0AA1D73AE5488A099360FC958FC2A4D82920A75E1D0975952C0441F6F"
-        try {
-            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120
-            $actualSha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
-            if ($actualSha -ne $expectedSha) {
-                Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
-                Write-Fail ("Qdrant zip SHA256 mismatch. Expected " + $expectedSha + ", got " + $actualSha)
-                throw "Qdrant zip hash mismatch - refusing to extract untrusted binary."
-            }
-            Write-V ("Qdrant zip SHA256 verified (" + $actualSha.Substring(0, 12) + "...)")
-            Write-V "Extracting to $nativeDir"
-            Expand-Archive -LiteralPath $zipPath -DestinationPath $nativeDir -Force
-            Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
-            if (Test-Path -LiteralPath $exe) {
-                Write-OK "qdrant.exe installed at $nativeDir"
-            } else {
-                Write-Warn2 "Extraction completed but qdrant.exe not found at expected path. Manual fix needed."
-                return
-            }
-        } catch {
-            Write-Warn2 ("Qdrant download failed: " + $_.Exception.Message)
-            Write-Info "Manually: download $zipUrl, verify SHA256 == $expectedSha, extract to $nativeDir, re-run."
-            return
-        }
-    }
-
-    # Minimal config file so ensure-qdrant.ps1 can launch with `--config-path config\production.yaml`.
-    if (-not (Test-Path -LiteralPath $cfgDir)) {
-        New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
-    }
-    if (-not (Test-Path -LiteralPath $cfg)) {
-        @"
-storage:
-  storage_path: ./storage
-  snapshots_path: ./snapshots
-
-service:
-  host: 127.0.0.1
-  http_port: 6333
-  grpc_port: 6334
-
-log_level: INFO
-"@ | Set-Content -LiteralPath $cfg -Encoding UTF8
-        Write-OK "production.yaml seeded"
-    }
-
-    # Probe - is something already serving on 6333?
-    try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:6333/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-        if ($resp.StatusCode -eq 200) {
-            Write-OK "Qdrant /healthz 200 (already running)"
-            return
-        }
-    } catch {
-        # not running - ensure-qdrant.ps1 will start it on next SessionStart.
-    }
-    Write-Info "Qdrant binary in place. ensure-qdrant.ps1 will boot it on the next Claude session (or run it manually now)."
-}
-
-# ----------------------------------------------------------------------
 # Step 5: directory layout
 # ----------------------------------------------------------------------
 function New-DirectoryLayout {
@@ -879,7 +750,6 @@ function New-DirectoryLayout {
         (Join-Path $InstallRoot "plans"),
         (Join-Path $InstallRoot "skills"),
         (Join-Path $InstallRoot "scripts"),
-        (Join-Path $InstallRoot "brain_index"),
         (Join-Path $InstallRoot ".tmp"),
         (Join-Path $InstallRoot "personal"),
         (Join-Path $InstallRoot "sessions"),
@@ -918,7 +788,7 @@ function New-DirectoryLayout {
 # domain workstation with shadow admin accounts) the default ACL on
 # %USERPROFILE%\.ultron inherits from the user's home directory, which on
 # most Windows installs grants Read/Execute to BUILTIN\Users. That's fine
-# for code, but ULTRON's vault, alerts.jsonl and SQLite brain_index can
+# for code, but ULTRON's vault, alerts.jsonl and SQLite brain.db can
 # hold personal-content artefacts the user probably doesn't want other
 # accounts on the same box to be able to read.
 #
@@ -1321,9 +1191,6 @@ function Install-CommunitySkills {
 }
 
 # ----------------------------------------------------------------------
-# Step 9: brain_index init
-# ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
 # Step 9b: ultron-memory sidecar (semantic recall daemon)
 #
 # The hooks and the Control Center look for ~/.ultron/bin/ultron-memory.exe.
@@ -1371,43 +1238,6 @@ function Test-MemorySidecar {
         return $false
     } finally {
         $ErrorActionPreference = $prevEAP
-    }
-}
-
-function Initialize-BrainIndex {
-    Write-Step "9. brain_index init"
-    $script = Join-Path $Script:RepoRoot "scripts\cockpit\brain_index.py"
-    if (-not (Test-Path -LiteralPath $script)) {
-        Write-Skip "brain_index.py not in repo (older release?)"
-        return
-    }
-    if (-not (Get-Command "uv" -ErrorAction SilentlyContinue)) {
-        Write-Warn2 "uv missing - skipping brain_index"
-        return
-    }
-    # Check for empty vault first
-    $vault = Join-Path $env:USERPROFILE ".ultron-vault"
-    $vaultHasContent = $false
-    try {
-        $first = Get-ChildItem -LiteralPath $vault -Force -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($first) { $vaultHasContent = $true }
-    } catch { }
-
-    try {
-        Push-Location $Script:RepoRoot
-        if ($vaultHasContent) {
-            Write-V "uv run python scripts/cockpit/brain_index.py build"
-            & uv run python scripts\cockpit\brain_index.py build 2>&1 | ForEach-Object { Write-V $_ }
-        } else {
-            Write-V "vault empty - skipping initial embedding pass"
-            # Still touch the DB so downstream code does not crash
-            & uv run python -c "import sqlite3, pathlib; p = pathlib.Path.home()/'.ultron'/'brain_index'/'index.db'; p.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(str(p)).close()" 2>&1 | ForEach-Object { Write-V $_ }
-        }
-        Write-OK "brain_index initialized"
-    } catch {
-        Write-Warn2 ("brain_index init failed: " + $_.Exception.Message)
-    } finally {
-        Pop-Location
     }
 }
 
@@ -1462,7 +1292,7 @@ function Read-FeatureToggle {
 # an optional feature must be made in the wizard.
 #
 # Guarantees:
-#   - Core stuff (skills, agents, hooks, brain_index, qdrant) is NEVER
+#   - Core stuff (skills, agents, hooks) is NEVER
 #     touched by this step.
 #   - Skipped when the wizard did not run (CLI / NonInteractive / Force)
 #     so legacy automated installs never lose files.
@@ -1478,10 +1308,10 @@ function Remove-OptOutFeatureFiles {
     # Manifest: id -> list of repo-relative paths to remove if id == false.
     # Paths are interpreted under $Script:RepoRoot. Missing files are silent;
     # never throw. ONLY optional feature code - never core (skills, agents,
-    # hooks, brain_index, qdrant).
+    # hooks).
     $optOutManifest = @{
-        # 2026-10-08: only files that still exist. feat_sessions and
-        # feat_plans have no script left to purge (their wizard choice still
+        # 2026-10-08: only files that still exist. feat_sessions,
+        # feat_plans and feat_notifications have no script left to purge (their wizard choice still
         # feeds features.json below).
         feat_gaming = @(
             "scripts\cockpit\gaming-enum.ps1"
@@ -1489,18 +1319,13 @@ function Remove-OptOutFeatureFiles {
         feat_schedules = @(
             "scripts\cockpit\install-scheduler.ps1"
         )
-        feat_notifications = @(
-            "scripts\qdrant\qdrant-notify.ps1"
-        )
         feat_usage = @(
             "scripts\cockpit\token_baseline.py",
             "scripts\cockpit\token_budget.py"
         )
         feat_project = @(
-            "scripts\cockpit\project_editor.py",
             "scripts\cockpit\project_notes.py",
-            "scripts\cockpit\launch_project.py",
-            "scripts\cockpit\scan_projects.py"
+            "scripts\cockpit\launch_project.py"
         )
     }
 
@@ -1887,13 +1712,12 @@ function Show-ComponentPlan {
     if ($Script:WantCore) {
         Write-Info "[core] app + memory + hooks:"
         Write-Info "  - dependency check (winget auto-install if missing): git, Node 22+, Claude Code, uv, Rust"
-        Write-Info ("  - Qdrant native binary -> " + (Join-Path $InstallRoot "qdrant-native"))
         Write-Info ("  - directory layout     -> " + $InstallRoot + " + " + (Join-Path $env:USERPROFILE ".ultron-vault"))
         Write-Info ("  - templates seeded (only if absent): CLAUDE.md, SYSTEM-MAP.md, MEMORY.md, cockpit/personal seeds")
         Write-Info ("  - python venv (uv sync) -> " + (Join-Path $Script:RepoRoot ".venv") + " (the hooks depend on it)")
         Write-Info ("  - hooks merge -> " + (Join-Path $claudeDir "settings.json") + " (template templates\settings-hooks.json; timestamped backup first)")
         Write-Info ("  - feature flags -> " + (Join-Path $InstallRoot "cockpit\features.json") + " (existing answers are kept)")
-        Write-Info ("  - brain_index init + memory sidecar -> " + (Join-Path $InstallRoot "bin\ultron-memory.exe"))
+        Write-Info ("  - memory sidecar -> " + (Join-Path $InstallRoot "bin\ultron-memory.exe"))
         Write-Info ("  - MSVC linker preflight (winget Build Tools if missing)")
         Write-Info ("  - control-center: npm install + desktop app build (up to ~25 min cold; -NoApp skips)")
         Write-Info ("  - doctor.py verification")
@@ -1974,7 +1798,6 @@ function Invoke-ComponentInstall {
         Test-OrInstall-Uv
         Test-OrInstall-Rust   | Out-Null
         Test-OrInstall-MsvcLinker
-        Install-QdrantNative
         New-DirectoryLayout
         Set-InstallRootAcl
         New-WakeUpStubs
@@ -1982,7 +1805,6 @@ function Invoke-ComponentInstall {
         Initialize-PythonVenv
         Update-ClaudeSettings
         Set-FeatureFlags
-        Initialize-BrainIndex
         Install-MemorySidecar
         Install-GitHooks
         Build-ControlCenter
@@ -2011,10 +1833,6 @@ try {
     Test-OrInstall-Uv
     Test-OrInstall-Rust   | Out-Null
     Test-OrInstall-MsvcLinker
-    # Qdrant - native Windows binary, no Docker needed. Semantic recall is
-    # a core ULTRON capability; the installer fetches the official release
-    # zip if `~/.ultron/qdrant-native/qdrant.exe` is missing.
-    Install-QdrantNative
     New-DirectoryLayout
     Set-InstallRootAcl
     New-WakeUpStubs
@@ -2027,7 +1845,6 @@ try {
     Install-CommunitySkills
     Set-FeatureFlags
     Remove-OptOutFeatureFiles
-    Initialize-BrainIndex
     Install-MemorySidecar
     Install-GitHooks
     Build-ControlCenter

@@ -8,9 +8,7 @@ use super::super::super::model::{
 };
 use super::super::super::sqlite_store as store;
 use super::super::super::MemoryError;
-use super::super::{
-    raised_sensitivity, redact_item_in_place, sync_index, MemoryService, SECRET_RISK_MARKER,
-};
+use super::super::{raised_sensitivity, redact_item_in_place, MemoryService, SECRET_RISK_MARKER};
 use super::{find_near_dup_active, in_immediate_tx};
 
 impl MemoryService {
@@ -18,14 +16,11 @@ impl MemoryService {
     /// When `actor == User` the resulting item is marked validated.
     pub fn approve_candidate(id: &str, actor: Actor) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
-        let item = Self::approve_candidate_on(&conn, id, actor)?;
-        sync_index(&item); // W4: keep the dense index in sync with the approval
-        Ok(item)
+        Self::approve_candidate_on(&conn, id, actor)
     }
 
     /// Cuerpo de [`Self::approve_candidate`] sobre una conexión dada (testable
-    /// contra una base en memoria). No toca el índice denso: eso lo hace el
-    /// wrapper tras el commit.
+    /// contra una base en memoria).
     ///
     /// Orden (2026-09-03): estado pending → gate exacto por `content_hash`
     /// (índice, no depende de FTS) → gate near-dup (FTS + Jaccard) → escritura

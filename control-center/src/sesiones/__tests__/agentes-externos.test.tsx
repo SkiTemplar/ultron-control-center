@@ -1,7 +1,7 @@
 // Delegaciones de Claude en Codex y Antigravity por Bash: salen en el árbol de
 // Agentes con su estado; las órdenes que solo consultan la CLI no.
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Agentes } from "../components/inspector/Agentes";
 import { EXTERNAL_MAX, externalRuns } from "../components/inspector/externos";
@@ -39,6 +39,16 @@ describe("externalRuns", () => {
       ["AGY", "error"],
     ]);
     expect(runs[0].description).toBe("Rescate con Codex");
+    expect(runs.map((r) => r.model)).toEqual(["gpt-6-astra", "gemini-3.8-flash-high", "gpt-6-astra", null]);
+  });
+
+  it("caso negativo: el modelo sale de la línea que delega, no de otra orden ni de otro flag", () => {
+    const runs = externalRuns([
+      bash('git log -m --model-x 1\nagy --mode plan -p "sin modelo"'),
+      bash('codex exec --model=gpt-6.1-sol "x"'),
+      bash('agy -p "usa -m en el texto"'),
+    ]);
+    expect(runs.map((r) => r.model)).toEqual([null, "gpt-6.1-sol", null]);
   });
 
   it("caso negativo: consultas de la CLI y menciones no son delegaciones", () => {
@@ -94,6 +104,19 @@ describe("Agentes", () => {
     render(<Agentes session={session} currentAgent={null} />);
     expect(screen.getByText("Lectura con AGY")).toBeTruthy();
     expect(screen.getByText("AGY")).toBeTruthy();
+    expect(screen.getByText("Lectura con AGY").closest(".node")?.textContent).toContain("modelo por defecto");
+  });
+
+  it("pinta el modelo del subagente de Claude y no inventa uno si aún no hay", () => {
+    const session = SESSIONS[0];
+    const node = (agentId: string, model?: string) => ({
+      agentId, parentAgentId: null, type: "debugger", description: agentId, status: "running" as const, startedAt: "", turns: 1, tokens: 0,
+      ...(model ? { model } : {}),
+    });
+    act(() => store.dispatch({ type: "agents", id: session.id, agents: [node("con-modelo", "claude-sonnet-5-5"), node("sin-modelo")] }));
+    render(<Agentes session={session} currentAgent={null} />);
+    expect(screen.getByText("con-modelo").closest(".node")?.textContent).toContain("Sonnet 5.5");
+    expect(screen.getByText("sin-modelo").closest(".node")?.textContent).not.toMatch(/Opus|Sonnet|Haiku|Fable|—/);
   });
 
   it("marca «caducada» la delegación sin resultado de una sesión parada", () => {

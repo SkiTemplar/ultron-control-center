@@ -1,4 +1,4 @@
-// Ajustes de ULTRON Sessions: tema, interfaz, avisos sin foco, sesiones nuevas (modelo, effort
+// Ajustes de ULTRON Sessions: tema, fuente, interfaz, avisos sin foco, sesiones nuevas (modelo, effort
 // y modo de permisos), sesión actual (modo de permisos en caliente o reinicio
 // en otro modo), motores externos, detección de colgado y diagnóstico.
 
@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { addNote, reportError } from "../bootstrap";
 import { useApi } from "../context";
 import { ENGINE_IDS, ENGINE_LABEL } from "../engines";
-import { EFFORTS, NEW_SESSION_MODELS, SCALES, setPrefs, usePrefs } from "../prefs";
+import { FONTS, applyFont, loadFontId, saveFontId, type FontId, type FontOption } from "../fonts";
+import { CHAT_FONT_SIZES, EFFORTS, NEW_SESSION_MODELS, SCALES, setPrefs, usePrefs } from "../prefs";
 import { useSessionInfo } from "../store";
 import { THEMES, applyTheme, loadThemeId, saveThemeId, type ThemeId } from "../themes";
 import type { Effort, PermissionMode, SessionId, SessionPrefs } from "../types";
@@ -60,6 +61,19 @@ function ThemeCard({ id, current, onPick }: { id: ThemeId; current: ThemeId; onP
     <button ref={ref} className="theme-card" aria-pressed={current === id} onClick={() => onPick(id)} title={theme.description}>
       <span className="sw" aria-hidden="true"><i /><i /><i /></span>
       <span className="nm">{theme.label}</span>
+    </button>
+  );
+}
+
+function FontCard({ font, current, onPick }: { font: FontOption; current: FontId; onPick: (id: FontId) => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    ref.current?.style.setProperty("--fc-family", font.isProportional ? "var(--f-body)" : font.mono);
+  }, [font]);
+  return (
+    <button ref={ref} className="font-card" aria-pressed={current === font.id} onClick={() => onPick(font.id)} title={font.description}>
+      <span className="smp" aria-hidden="true">Aa 0O 1lI -&gt; !=</span>
+      <span className="nm">{font.label}</span>
     </button>
   );
 }
@@ -249,6 +263,7 @@ interface Props {
 export function SettingsDialog({ onClose, sessionId = null, focusCurrent = false }: Props) {
   const prefs = usePrefs();
   const [theme, setTheme] = useState<ThemeId>(loadThemeId);
+  const [font, setFont] = useState<FontId>(loadFontId);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.focus();
@@ -262,6 +277,12 @@ export function SettingsDialog({ onClose, sessionId = null, focusCurrent = false
     setTheme(id);
     applyTheme(id);
     saveThemeId(id);
+  };
+
+  const pickFont = (id: FontId) => {
+    setFont(id);
+    applyFont(id);
+    saveFontId(id);
   };
 
   return (
@@ -279,12 +300,26 @@ export function SettingsDialog({ onClose, sessionId = null, focusCurrent = false
           </div>
         </section>
         <section>
+          <h3>Fuente del chat</h3>
+          <div className="theme-grid">
+            {FONTS.map((f) => <FontCard key={f.id} font={f} current={font} onPick={pickFont} />)}
+          </div>
+        </section>
+        <section>
           <h3>Interfaz</h3>
           <div className="set-row">
             <span>Escala</span>
             <div className="seg" role="group" aria-label="Escala de la interfaz">
               {SCALES.map((s) => (
                 <button key={s} aria-pressed={prefs.scale === s} onClick={() => setPrefs({ scale: s })}>{s} %</button>
+              ))}
+            </div>
+          </div>
+          <div className="set-row">
+            <span>Letra de los mensajes</span>
+            <div className="seg" role="group" aria-label="Tamaño de letra de los mensajes">
+              {CHAT_FONT_SIZES.map((s) => (
+                <button key={s} aria-pressed={prefs.chatFontSize === s} onClick={() => setPrefs({ chatFontSize: s })}>{s} px</button>
               ))}
             </div>
           </div>

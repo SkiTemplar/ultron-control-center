@@ -248,9 +248,43 @@ fn turno_perdido(
     }));
     if sin_pendientes(n, t) {
         a_idle(n, ef, true);
+        n.perdido = Some((id.to_string(), desde));
     } else {
         a_working(n, Origen::Externo, None, ahora);
     }
+}
+
+/// Actividad del hilo principal del puente con la sesión en idle por un
+/// `turnEnd perdido`: el turno seguía vivo (sesión 7b952eba, 2026-11-15: su
+/// `turnEnd` real llegó 4 min después del cierre y el punto marcó idle todo
+/// ese tiempo). Vuelve a working con el mismo turno, que sale de `cerrados`
+/// para que lo cierre su `turnEnd`. Con `turn_id`, solo si es el perdido; sin
+/// él (una herramienta), basta con que haya uno perdido.
+pub(super) fn reabrir_perdido(
+    n: &mut EstadoSesion,
+    turn_id: Option<&str>,
+    ahora: Ms,
+    ef: &mut Vec<Efecto>,
+) {
+    if n.status != SessionStatus::Idle {
+        return;
+    }
+    let Some((id, desde)) = n.perdido.clone() else {
+        return;
+    };
+    if turn_id.is_some_and(|t| t != id) {
+        return;
+    }
+    ef.push(Efecto::Log(format!(
+        "el turno {id} dado por perdido sigue vivo: vuelve a working"
+    )));
+    n.cerrados.retain(|c| *c != id);
+    a_working(n, Origen::Externo, Some(id), ahora);
+    n.working_since = Some(desde);
+    if let Some(t) = n.turno.as_mut() {
+        t.desde = desde;
+    }
+    reanudar_cola(n, "actividad del turno dado por perdido", ef);
 }
 
 fn modo_por_pantalla(n: &mut EstadoSesion, ahora: Ms) {

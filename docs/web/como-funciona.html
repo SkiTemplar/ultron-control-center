@@ -79,8 +79,8 @@
 <section id="memoria"><div class="wrap">
   <h2>01 · Memoria — el write-path gobernado</h2>
   <p>La memoria persistente vive en <code>brain.db</code> (SQLite + FTS5), la <b>única fuente de verdad</b>,
-  con un <b>escritor único</b>: <code>MemoryService</code>. Nada más escribe memoria. El recall denso lo sirve
-  un Qdrant nativo con embeddings E5-large (1024d, prefijos <code>query:</code>/<code>passage:</code>).</p>
+  con un <b>escritor único</b>: <code>MemoryService</code>. Nada más escribe memoria. El recall es solo léxico (FTS5/BM25)
+  sobre la propia <code>brain.db</code>: no hay índice de vectores ni modelos de embeddings.</p>
   <p>Nada entra directo. Toda captura (hooks de sesión, resultados de subagentes, decisiones detectadas)
   se propone como <b>candidato</b> y atraviesa esta cadena antes de ser memoria:</p>
 <pre>hook / agente
@@ -91,7 +91,7 @@
 [redacción + gate PII]     email/teléfono/rutas de usuario → item marcado Secret (fuera de recall)
 [dedupe exacto BLOQUEANTE] twin con mismo content_hash (activo o pendiente, mismo scope+proyecto)
                            → no-op + evento; el CLI responde {skipped:"duplicate"}
-[detector de contradicción] vecinos densos + juez conservador; conflicto → cuarentena humana;
+[detector de contradicción] vecinos FTS5 + juez conservador; conflicto → cuarentena humana;
                            state-update 1:1 claro (opt-in) → supersede enlazado
    ▼
 inbox humano  ──o──  auto-approve por bandas (≥umbral → activo · medio → pendiente · ruido → rechazado)
@@ -105,19 +105,18 @@ deprecate --id = retirada RECUPERABLE para hechos de eras muertas)</pre>
 
 <section id="recall"><div class="wrap">
   <h2>02 · Recall — el read-path con gates</h2>
-  <p>Una consulta pasa por recuperación híbrida y una cadena de gates hasta convertirse en un
+  <p>Una consulta pasa por recuperación léxica (FTS5/BM25) y una cadena de gates hasta convertirse en un
   <b>pack</b> compacto (k=8, ≤1500 tokens) que se inyecta como contexto. Cada descarte lleva su razón
   (el subcomando <code>trace</code> expone el pipeline completo, headless):</p>
 <pre>query
-  ├─ denso:  E5 → Qdrant top-30 (cosine)          ├─ sparse: FTS5/BM25 top-30
+  └─ sparse: FTS5/BM25 top-30 (ensanchado ×12 bajo filtro de proyecto)
   ▼
-RRF (k=60, fusión ponderable) + re-rank de calidad (confianza × recency) + tie-break por cosine e id
+puntuación RRF del rango (k=60) + re-rank de calidad (confianza × recency, ambiente y hubs) + tie-break por id
   ▼  por candidato, en orden:
 [status=active] [sin codebase_fact] [vigencia temporal + TTL] [filtro de proyecto (ambiente aplica)]
 [gate vault] [sensitivity ≠ Secret] [TRUST GATE anti-inyección: "ignore previous", "[system]"… → cuarentena]
-[cola BM25 sin respaldo denso → fuera] [clamp 180 tokens/entrada: un resumen gordo no desaloja a nadie]
+[cola BM25: rango ≥ 3 → fuera] [clamp 180 tokens/entrada: un resumen gordo no desaloja a nadie]
   ▼  sobre el pack completo:
-[score-floor 0.83: sin dense ≥ floor NI sparse fuerte → pack VACÍO (abstiene)]
 [TRUST GATE de cobertura: término informativo con 0 documentos en el corpus → abstiene
  ("¿cuándo se desplegó en AWS?" → el corpus no conoce "AWS" → no se inyectan vecinos temáticos)]</pre>
   <p>La filosofía: <b>abstenerse es mejor que inyectar relleno</b>. Un pack vacío se declara
@@ -135,20 +134,22 @@ RRF (k=60, fusión ponderable) + re-rank de calidad (confianza × recency) + tie
     <tr><td class="mono">eval --golden</td><td>Oráculo de labels independiente (29 queries, no circular)</td><td class="mono">recall@8 0.709</td></tr>
   </table>
   <p>Y el sistema entero se audita con el harness <b>Kirkardo</b> (22 categorías, checks binarios
-  reproducibles) y <code>doctor</code> (SQLite/Qdrant/reconcile/evals/binario fresco).</p>
+  reproducibles) y <code>doctor</code> (SQLite/FTS5/evals/binario fresco).</p>
+  <p class="note">Las cifras de 2026-07-02 son del recall híbrido (denso E5 + sparse). La ruta densa se
+  apagó el 2026-09-28 y se retiró del código el 2026-11-14: hoy el golden sparse mide recall@8 0,131
+  (0,744 con denso+rerank), precio aceptado por la RAM.</p>
   <h3>Lo que se probó y NO entró (esto también es el manual)</h3>
   <ul>
     <li><b>Reranker cross-encoder</b> (BGE-v2-m3): el A/B de 2026-07-02 (bench pre-higiene) dio negativo y quedó OFF;
       re-medido el 2026-07-03/04 contra el oráculo golden ganó en todo (recall@8 0.682→0.709, p@3 0.379→0.483)
-      → <b>ON por defecto en los paths de calidad</b> (recall CLI/trace/evals; opt-out <code>ULTRON_RERANK=0</code>).
-      El hot path por-prompt lo mantiene OFF (~2-2.4 s/llamada vs p50 134 ms; opt-in <code>ULTRON_RERANK_HOT=1</code>).
-      Un "no" medido puede volverse "sí" cuando cambia el corpus — se re-mide, no se hereda.</li>
+      → estuvo ON en los paths de calidad (el hot path por-prompt lo mantenía OFF: ~2-2.4 s/llamada vs p50 134 ms)
+      hasta su retirada con la ruta densa el 2026-11-14. Un "no" medido puede volverse "sí" cuando cambia el corpus — se re-mide, no se hereda.</li>
     <li><b>Fanout 50 / RRF k=20</b>: ganaba en un juez, perdía en los otros dos (sobreajuste cazado) → defaults 30/60.</li>
-    <li><b>Pesar denso &gt; sparse</b>: expulsa del top-8 a los relevantes que solo llegan por match léxico → peso 1.0.</li>
+    <li><b>Pesar denso &gt; sparse</b> (cuando había denso): expulsaba del top-8 a los relevantes que solo llegan por match léxico → peso 1.0.</li>
     <li><b>Gate de diversidad del pack</b> (MMR-lite): los golden premian redundancia; queda opt-in hasta tener un juez de información-por-token.</li>
   </ul>
-  <p class="note">Un "no" medido vale tanto como un "sí": impide comprar mejoras falsas. Los cuatro
-  quedaron como knobs de entorno para futuros A/B.</p>
+  <p class="note">Un "no" medido vale tanto como un "sí": impide comprar mejoras falsas. El fanout, la k de
+  RRF y el gate de diversidad siguen como knobs de entorno para futuros A/B.</p>
 </div></section>
 
 <section id="hooks"><div class="wrap">
@@ -156,8 +157,8 @@ RRF (k=60, fusión ponderable) + re-rank de calidad (confianza × recency) + tie
   <p>Claude Code expone ~30 tipos de hook; ULTRON usa <b>~9</b>, elegidos por valor y no por coleccionismo:</p>
   <table>
     <tr><th>Hook</th><th>Qué hace</th></tr>
-    <tr><td class="mono">SessionStart</td><td>Resume fiel: nota viva del harness, tareas abiertas del kanban, contexto del proyecto, salud de Qdrant</td></tr>
-    <tr><td class="mono">UserPromptSubmit</td><td>Orchestrate: encuadre por intención, agentes candidatos, memorias relevantes (pack gobernado), directiva de delegación</td></tr>
+    <tr><td class="mono">SessionStart</td><td>Resume fiel: nota viva del harness, tareas abiertas del kanban, contexto del proyecto</td></tr>
+    <tr><td class="mono">UserPromptSubmit</td><td>Orchestrate: solo inyecta el tono de la conversación; el modo completo (encuadre, agentes candidatos, pack de memoria, directiva de delegación) se borró el 2026-11-14</td></tr>
     <tr><td class="mono">PostToolUse(+Failure)</td><td>Captura de errores CON contexto (qué se intentó + qué falló) y gate de informatividad</td></tr>
     <tr><td class="mono">Stop</td><td>Compresión de sesión, drenaje de decisiones, cola Run Batch de comandos rechazados/fallidos</td></tr>
     <tr><td class="mono">SubagentStop</td><td>Harvest de resultados de subagentes con atribución (agente, label, proyecto)</td></tr>
@@ -169,14 +170,10 @@ RRF (k=60, fusión ponderable) + re-rank de calidad (confianza × recency) + tie
 
 <section id="routing"><div class="wrap">
   <h2>05 · Skills — routing lazy</h2>
-  <p>El catálogo de skills vive <b>desactivado</b> (<code>.disabled</code>) y no cuesta tokens. Un núcleo
-  mínimo está siempre activo; el resto lo inyecta on-demand el dispatcher según el prompt:</p>
-  <ul>
-    <li><b>v2 determinista</b>: triggers léxicos con frases (no substrings — "arr" → "arregla" fue una lección cara), accuracy@3 medida en harness.</li>
-    <li><b>v3 semántico</b>: fallback por similitud de embeddings cuando lo léxico no matchea, servido por el daemon E5 residente.</li>
-  </ul>
-  <p>Los harnesses <code>_verify_final</code> y <code>_accuracy_at3</code> deben quedar verdes tras tocar
-  el routing. Conservar skills es gratis; activarlas en masa no.</p>
+  <p>El catálogo de skills vive <b>desactivado</b> (<code>_disabled/</code>) y no cuesta tokens. Un núcleo
+  mínimo está siempre activo; el resto se activa desde la pestaña Skills o, las de terceros, con
+  <code>/skill</code>. El dispatcher que las inyectaba según el prompt se borró el 2026-11-14.
+  Conservar skills es gratis; activarlas en masa no.</p>
 </div></section>
 
 <section id="router"><div class="wrap">

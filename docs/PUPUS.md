@@ -97,11 +97,18 @@ terminar, revierte lo que haya cambiado y lo avisa en la respuesta; lo que dejó
 el turno queda en cuarentena en `~/.ultron/cockpit/pupus-guardrail/<marca>/`. Cubre settings,
 hooks, agentes, reglas y skills de Claude Code, `.ultron/hooks`, `mods`, `scripts`
 y `bin`, la configuración de Codex y Gemini, `.ssh`, perfiles de shell, `.gitconfig`
-y la carpeta de Inicio. Los turnos con guardarraíl van de uno en uno: un segundo
+y la carpeta de Inicio. Del repo de ULTRON cubre además `.ultron/.claude` (settings,
+hooks, agentes, comandos, reglas y skills de proyecto), `.ultron/.git/hooks`,
+`.ultron/.git/config`, `.ultron/CLAUDE.md` y `.ultron/.mcp.json`; de la carpeta de
+usuario, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` y `.mcp.json`, que cargan los propios
+CLI de Pupus. Los turnos con guardarraíl van de uno en uno: un segundo
 mensaje espera a que acabe el primero (hasta 3 min).
 
 Es reversión después del turno, no prevención. Lo que se escribe fuera de la
-lista no se ve; un programa que el turno deje en marcha no se deshace; lo que no
+lista no se ve: los `.git/hooks`, `.git/config`, `.claude/`, `CLAUDE.md` y
+`.mcp.json` de cualquier otro repo (también los worktrees de
+`.ultron/.claude/worktrees`) no se vigilan, aunque el freno del chat pregunta
+antes de escribir en sus `.git`, `.claude/` y `.mcp.json` (no en su `CLAUDE.md`); un programa que el turno deje en marcha no se deshace; lo que no
 cabe en la foto (ejecutables de `.ultron/bin`, más de 64 MiB) se detecta pero no se
 restaura, y el aviso lo dice. Una edición legítima de esas rutas durante el turno
 también se revierte, aunque queda en cuarentena. No se ha medido si el sandbox de

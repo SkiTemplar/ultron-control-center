@@ -2,7 +2,7 @@
 # uninstall.sh — ULTRON Linux uninstall (mirror of uninstall.ps1).
 #
 # What it removes:
-#   - ~/.ultron/                            (system files, plans, sessions, telemetry, qdrant native binary)
+#   - ~/.ultron/                            (system files, plans, sessions, telemetry)
 #   - ~/.local/bin/ultron-control-center    (AppImage launcher placed by bootstrap.sh)
 #   - ~/.local/share/applications/ultron-control-center.desktop  (launcher)
 #   - The ULTRON hooks block inside ~/.claude/settings.json (the rest of settings.json is preserved)

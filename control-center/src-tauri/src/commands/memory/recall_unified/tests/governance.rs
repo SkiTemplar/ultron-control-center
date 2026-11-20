@@ -43,9 +43,7 @@ fn assemble_pack_admits_ambient_null_project_items() {
         .map(|(i, id)| FusedHit {
             canonical_id: (*id).clone(),
             rrf_score: 1.0 - i as f32 * 0.01,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.5),
         })
         .collect();
 
@@ -104,9 +102,7 @@ fn assemble_pack_excludes_codebase_fact_even_when_active() {
         .map(|(i, id)| FusedHit {
             canonical_id: (*id).clone(),
             rrf_score: 1.0 - i as f32 * 0.01,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.5),
         })
         .collect();
 
@@ -130,7 +126,7 @@ fn assemble_pack_excludes_codebase_fact_even_when_active() {
     );
 }
 
-// Governance invariants of the recall pipeline, unit-tested WITHOUT Qdrant/E5
+// Governance invariants of the recall pipeline, unit-tested hermetically
 // (Ola 3 D2): rejected/deprecated/secret/cross-project NEVER reach the pack;
 // active in-project AND global-scope items DO. Protects Ola 0 + Ola 1a in CI.
 #[test]
@@ -222,9 +218,7 @@ fn assemble_pack_enforces_governance_invariants() {
         .map(|(i, id)| FusedHit {
             canonical_id: (*id).clone(),
             rrf_score: 1.0 - i as f32 * 0.01,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.5),
         })
         .collect();
 
@@ -260,7 +254,7 @@ fn assemble_pack_enforces_governance_invariants() {
 //   - cross_project=false  -> a scope=project item from `otro` is EXCLUDED.
 //   - cross_project=true   -> that same item is INCLUDED (project filter
 //     relaxed) BUT a Secret item from `otro` is STILL excluded (security is
-//     NOT relaxed). Unit-tested without Qdrant/E5 — guards the invariant that
+//     NOT relaxed). Unit-tested hermetically — guards the invariant that
 //     cross-project relaxes ONLY the project filter.
 #[test]
 fn assemble_pack_cross_project_relaxes_only_project_filter() {
@@ -313,9 +307,7 @@ fn assemble_pack_cross_project_relaxes_only_project_filter() {
         .map(|(i, id)| FusedHit {
             canonical_id: (*id).clone(),
             rrf_score: 1.0 - i as f32 * 0.01,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.5),
         })
         .collect();
 
@@ -401,9 +393,7 @@ fn injection_patterns_are_quarantined_from_the_pack() {
         .map(|(i, it)| FusedHit {
             canonical_id: it.id.clone(),
             rrf_score: 0.9 - (i as f32) * 0.1,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.85),
         })
         .collect();
 

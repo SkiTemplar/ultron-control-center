@@ -250,18 +250,12 @@ pub(super) fn rebalance_delegates(
     scored.into_iter().map(|(a, _)| a).collect()
 }
 
-/// Embedding noise floor — multilingual E5 scores for irrelevant catalog entries
-/// cluster around 0.78-0.81 (measured). Skills at or below this are dropped so
-/// the assistant only sees pertinent ones (an empty skill list is valid).
-const NOISE_FLOOR: f32 = 0.80;
-
-/// Guarantee the intent's preferred specialists enter the rebalance pool even
-/// when E5 retrieval (cross-lingual ES-prompt vs EN-description noise) failed to
-/// surface them in the raw top-k. Without this the +SPECIALIST_BOOST is
-/// decorative — it can only lift already-retrieved agents. Any preferred agent
-/// that exists on disk but is missing from `hits` is injected at PREFERRED_FLOOR
-/// so the downstream boost ranks it. This is the core fix for the UI/testing
-/// 0/3 routing failures (the right agent never made the top-12 retrieval).
+/// Guarantee the intent's preferred specialists enter the rebalance pool. Since
+/// the dense route was retired (2026-11-14) there is no semantic retrieval, so
+/// the pool starts empty and every preferred agent that exists on disk is
+/// injected here at PREFERRED_FLOOR for the downstream boost to rank it. The
+/// `hits` argument keeps the function total for callers (and tests) that bring
+/// their own candidates: already-present agents are not duplicated.
 pub(super) fn inject_preferred_floor(
     mut hits: Vec<catalog::CatalogHit>,
     intent: &str,
@@ -285,52 +279,21 @@ pub(super) fn inject_preferred_floor(
     hits
 }
 
-/// Rank skill hits and keep the top `keep` above the noise floor. Skills arrive
-/// pre-sorted by semantic score from Qdrant; we drop sub-floor noise so a prompt
-/// with no pertinent skill yields an empty list rather than fake suggestions.
-pub(super) fn rank_skills(
-    hits: Vec<catalog::CatalogHit>,
-    intent: &str,
-    keep: usize,
-) -> Vec<SkillChoice> {
-    let preferred = preferred_skills(intent);
-    let mut skills: Vec<SkillChoice> = hits
-        .into_iter()
-        .filter(|h| h.score > NOISE_FLOOR || preferred.contains(&h.name.as_str()))
-        .map(|h| {
-            let mut score = h.score;
-            if preferred.contains(&h.name.as_str()) {
-                score += SPECIALIST_BOOST;
-            }
-            SkillChoice {
-                name: h.name,
-                description: h.description,
-                kind: h.kind,
-                score,
-            }
+/// The intent's preferred persona/domain skills, top `keep`. Rule-based only:
+/// without the dense route there are no semantic skill candidates, so a prompt
+/// whose intent prefers no skill yields an empty list rather than fake
+/// suggestions.
+pub(super) fn rank_skills(intent: &str, keep: usize) -> Vec<SkillChoice> {
+    preferred_skills(intent)
+        .iter()
+        .take(keep)
+        .map(|name| SkillChoice {
+            name: (*name).to_string(),
+            description: String::new(),
+            kind: "persona".to_string(),
+            score: PREFERRED_FLOOR + SPECIALIST_BOOST,
         })
-        .collect();
-    // Floor-inject the intent's preferred persona/domain skills the retrieval
-    // missed, so e.g. tio-gilito wins a finance prompt even if E5 buried it.
-    let present: std::collections::HashSet<String> =
-        skills.iter().map(|s| s.name.clone()).collect();
-    for name in preferred {
-        if !present.contains(*name) {
-            skills.push(SkillChoice {
-                name: (*name).to_string(),
-                description: String::new(),
-                kind: "persona".to_string(),
-                score: PREFERRED_FLOOR + SPECIALIST_BOOST,
-            });
-        }
-    }
-    skills.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    skills.truncate(keep);
-    skills
+        .collect()
 }
 
 /// ¿Hay en el prompt una referencia concreta (ruta, fichero, identificador o

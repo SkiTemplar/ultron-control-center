@@ -8,6 +8,10 @@
  *   el chat (mod ultron-permisos), que escribe sin pasar por una herramienta.
  * - `.ultron-trabajo.json`: marcador del modo uni que protege `borrador/` y
  *   `entrega/`. Lo crea `project-create.mjs` (la plantilla trabajo-entrega).
+ * - `hook-double-attempt.json` (2026-11-16): marcas del «doble intento» de las
+ *   peticiones 'ask' en bypassPermissions (lib/double-attempt.js). Su unico
+ *   escritor es el propio hook; una marca escrita a mano dejaria pasar la
+ *   llamada al primer intento.
  *
  * Con `bypassPermissions` nada pide permiso, asi que si el agente pudiera
  * escribirlos se quitaria el freno a si mismo. Aqui se decide un deny duro:
@@ -39,6 +43,9 @@
 
 const PAUSA_BASENAME = 'deny-secrets-pausa.json';
 const MARKER_BASENAME = '.ultron-trabajo.json';
+// Mismo valor que STATE_BASENAME de lib/double-attempt.js (lo fija su selftest);
+// no se importa para que este modulo no cargue file-lock ni crypto.
+const DOUBLE_ATTEMPT_BASENAME = 'hook-double-attempt.json';
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell', 'Monitor']);
@@ -109,6 +116,7 @@ function protectedNames(env = process.env) {
   const names = new Map([
     [PAUSA_BASENAME, 'deny-secrets pause file'],
     [MARKER_BASENAME, 'uni deliverable marker'],
+    [DOUBLE_ATTEMPT_BASENAME, 'double-attempt state file'],
   ]);
   const custom = basenameOf(env.ULTRON_DENY_SECRETS_PAUSA || '');
   if (custom && !names.has(custom)) names.set(custom, 'deny-secrets pause file');
@@ -296,6 +304,7 @@ function classifyControlWrite(toolName, toolInput, env = process.env) {
 module.exports = {
   PAUSA_BASENAME,
   MARKER_BASENAME,
+  DOUBLE_ATTEMPT_BASENAME,
   classifyControlWrite,
   isReadOnlyCommand,
   neutralizeLiteralHeredocs,

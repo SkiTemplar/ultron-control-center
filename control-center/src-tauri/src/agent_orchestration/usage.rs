@@ -1,8 +1,9 @@
 // agent_orchestration/usage.rs — subagent harvest aggregation (casilla 2.1).
 //
 // Reads ~/.ultron/.tmp/subagent-harvest.jsonl (or $SUBAGENT_HARVEST_LOG) and
-// aggregates per-agent usage stats.  Ports scripts/agent-usage.mjs lines 34-47
-// and 57 faithfully; the JS is the authoritative spec.
+// aggregates per-agent usage stats. This Rust module is the only
+// implementation: the original `scripts/agent-usage.mjs` it was ported from
+// has been retired, so the semantics below (and their tests) are the spec.
 //
 // Public surface:
 //   - AgentUsage / LabelCount — serde(camelCase) structs consumed by the TS frontend.
@@ -48,11 +49,11 @@ struct HarvestRow {
 }
 
 // ---------------------------------------------------------------------------
-// Path resolution — mirrors agent-usage.mjs lines 24-25
+// Path resolution — $SUBAGENT_HARVEST_LOG, else ~/.ultron/.tmp/subagent-harvest.jsonl
 // ---------------------------------------------------------------------------
 
 pub(crate) fn harvest_path() -> Option<PathBuf> {
-    // env override wins (same as the JS script)
+    // env override wins
     if let Ok(p) = std::env::var("SUBAGENT_HARVEST_LOG") {
         if !p.is_empty() {
             return Some(PathBuf::from(p));
@@ -277,8 +278,8 @@ mod tests {
 
     #[test]
     fn test_empty_agent_and_null_chars_match_js_semantics() {
-        // Fidelity vs scripts/agent-usage.mjs: `agent:""` is falsy -> "unknown";
-        // `chars:null` -> 0 (r.chars || 0) and the row must survive (not be dropped).
+        // Semantics kept from the retired JS port: `agent:""` -> "unknown";
+        // `chars:null` -> 0 and the row must survive (not be dropped).
         let harvest = make_harvest(&[
             r#"{"ts":"2026-06-07T10:00:00.000Z","project":"ultron","agent":"","chars":50,"preview":"x"}"#,
             r#"{"ts":"2026-06-07T12:00:00.000Z","project":"ultron","agent":null,"chars":null,"preview":"y"}"#,

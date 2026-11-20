@@ -1,6 +1,9 @@
 import { Clipboard, Code, Eye, FileText, Sparkles } from "../icons";
 import {
+  AGENT_MODELS,
   COMMON_TOOLS,
+  MAX_MAX_TURNS,
+  MIN_MAX_TURNS,
   MAX_DESCRIPTION_CHARS,
   MIN_BODY_CHARS,
   type AgentTemplate,
@@ -48,7 +51,7 @@ export function StepTemplates(props: {
                   className="ml-auto font-mono text-[10px]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
-                  {tpl.model || "por defecto"}
+                  {tpl.model} · {tpl.maxTurns} turnos
                 </span>
               </div>
               <span
@@ -105,6 +108,9 @@ export function StepFrontmatter(props: {
   descriptionTooShort: boolean;
   model: ModelChoice;
   setModel: (v: ModelChoice) => void;
+  maxTurns: number;
+  setMaxTurns: (v: number) => void;
+  maxTurnsValid: boolean;
   toolsSelected: string[];
   toggleTool: (t: string) => void;
 }) {
@@ -112,6 +118,7 @@ export function StepFrontmatter(props: {
     name, setName, nameValid,
     description, setDescription, descriptionValid, descriptionTooShort,
     model, setModel,
+    maxTurns, setMaxTurns, maxTurnsValid,
     toolsSelected, toggleTool,
   } = props;
   return (
@@ -163,26 +170,52 @@ export function StepFrontmatter(props: {
 
       <FieldLabel label="Modelo">
         <div className="flex gap-2">
-          {(["", "haiku", "sonnet", "opus"] as const).map((m) => (
+          {AGENT_MODELS.map((m) => (
             <button
-              key={m || "por defecto"}
-              onClick={() => setModel(m)}
+              key={m.id}
+              onClick={() => setModel(m.id)}
               className="rounded border px-2 py-1 text-xs"
               style={{
                 borderColor:
-                  model === m
+                  model === m.id
                     ? "var(--color-accent)"
                     : "var(--color-border)",
                 background:
-                  model === m
+                  model === m.id
                     ? "var(--color-surface-2)"
                     : "var(--color-surface-1)",
               }}
             >
-              {m || "default"}
+              <span className="font-mono">{m.id}</span>
             </button>
           ))}
         </div>
+      </FieldLabel>
+
+      <FieldLabel label={`Tope de turnos (maxTurns, ${MIN_MAX_TURNS}-${MAX_MAX_TURNS})`}>
+        <input
+          type="number"
+          min={MIN_MAX_TURNS}
+          max={MAX_MAX_TURNS}
+          step={1}
+          className="w-32 rounded border bg-[var(--color-surface-2)] px-2 py-1 font-mono outline-none"
+          style={{
+            borderColor: maxTurnsValid
+              ? "var(--color-border)"
+              : "var(--color-error)",
+          }}
+          value={Number.isNaN(maxTurns) ? "" : maxTurns}
+          onChange={(e) => setMaxTurns(e.target.valueAsNumber)}
+        />
+        {maxTurnsValid ? (
+          <HelperText>
+            Referencia: 200 implementación, 120 depuración/tests, 100 revisión, 80 diseño, 60 investigación/resumen.
+          </HelperText>
+        ) : (
+          <HelperText error>
+            Debe ser un entero entre {MIN_MAX_TURNS} y {MAX_MAX_TURNS}.
+          </HelperText>
+        )}
       </FieldLabel>
 
       <FieldLabel label="Herramientas (el subagente tendrá acceso a ellas)">
@@ -292,6 +325,7 @@ export function StepTarget(props: {
     description: string;
     body: string;
     model: string;
+    maxTurns: number;
     toolsSelected: string[];
   };
 }) {
@@ -351,7 +385,8 @@ export function StepTarget(props: {
         <SummaryRow k="Plantilla" v={summary.templateId} />
         <SummaryRow k="Nombre" v={summary.name || "(falta)"} />
         <SummaryRow k="Descripción" v={summary.description || "(falta)"} />
-        <SummaryRow k="Modelo" v={summary.model || "por defecto"} />
+        <SummaryRow k="Modelo" v={summary.model} />
+        <SummaryRow k="maxTurns" v={String(summary.maxTurns)} />
         {summary.toolsSelected.length > 0 && (
           <SummaryRow k="Herramientas" v={summary.toolsSelected.join(", ")} />
         )}

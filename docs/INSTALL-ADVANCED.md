@@ -44,14 +44,14 @@ wizard — re-running is idempotent and the purge step is safe to re-do.
 | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `feat_gaming`        | Gaming utilities     | `scripts/cockpit/gaming-enum.ps1`                                                                                                           |
 | `feat_schedules`     | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                                     |
-| `feat_notifications` | Notifications        | `scripts/qdrant/qdrant-notify.ps1`                                                                                                          |
+| `feat_notifications` | Notifications        | —                                                                                                                                           |
 | `feat_usage`         | Usage tracking       | `scripts/cockpit/token_baseline.py`, `scripts/cockpit/token_budget.py`                                                                      |
 | `feat_sessions`      | Sessions archive     | none (only the `sessions` flag in `features.json`)                                                                                         |
 | `feat_project`       | Project manager      | `scripts/cockpit/project_editor.py`, `scripts/cockpit/project_notes.py`, `scripts/cockpit/launch_project.py`, `scripts/cockpit/scan_projects.py` |
 | `feat_plans`         | Plans & goals        | none (only the `plans` flag in `features.json`)                                                                                            |
 
 Core deps (Git, Node, uv, Claude Code CLI, layout) are **always** installed —
-they're hard requirements. Skills, agents, hooks, brain_index and Qdrant
+they're hard requirements. Skills, agents and hooks
 are checked on by default but **can be unchecked** in the wizard if you want
 a stripped install (e.g. you already manage skills/agents yourself).
 
@@ -72,7 +72,6 @@ If you decide *later* you no longer want a module:
 | Claude Code CLI   | `npm install -g @anthropic-ai/claude-code`     | `claude --version` works|
 | uv (Python)       | `irm https://astral.sh/uv/install.ps1 \| iex`  | `uv --version` works    |
 | Rust + cargo      | `winget install Rustlang.Rustup` + `rustup default stable` | `-NoApp` flag or `rustc` on PATH |
-| Qdrant (native)   | downloads `qdrant-x86_64-pc-windows-msvc.zip` v1.18.0 from GitHub releases, extracts to `~/.ultron/qdrant-native/` | `-NoDocker` flag (historical name) or `qdrant.exe` already at path |
 
 **Caveats:**
 
@@ -83,10 +82,6 @@ If you decide *later* you no longer want a module:
   unless you've globally locked down installs.
 - After winget finishes, the installer refreshes the session `PATH`
   from registry so the rest of the run can find the new binaries.
-- **No Docker.** ULTRON stopped depending on Docker in v15.0.2. The
-  Qdrant binary runs as a child process of `ensure-qdrant.ps1`, which
-  the SessionStart hook + a Windows scheduled task keep alive. No
-  daemon, no Docker Desktop window in the tray.
 - **Rust** install may print a notice that a reboot is required to
   finish wiring up the MSVC linker. The installer surfaces this — it
   doesn't force a reboot.
@@ -106,7 +101,7 @@ If you decide *later* you no longer want a module:
 | Internet  | `Test-NetConnection github.com -InformationLevel Quiet`     |
 
 If RAM < 8 GB or disk < 5 GB free, ULTRON will run but you may hit
-swap and stalls during embedding rebuilds.
+swap and stalls during builds.
 
 ### 0a. git (auto-installed)
 
@@ -168,49 +163,6 @@ and without a prebuilt release asset, the installer ends with an error.
 > MSVC Build Tools were just laid down. If `rustc`/`link.exe` already work in a
 > new shell, ignore it. The app (v15.8.0+) does not require a reboot at runtime.
 
-### 4. Qdrant (native Windows binary, no Docker)
-
-```powershell
-# Download the official release zip
-$zip = "$env:TEMP\qdrant-windows.zip"
-Invoke-WebRequest `
-  "https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-pc-windows-msvc.zip" `
-  -OutFile $zip
-
-# Extract into ~/.ultron/qdrant-native/
-$target = Join-Path $env:USERPROFILE ".ultron\qdrant-native"
-Expand-Archive -LiteralPath $zip -DestinationPath $target -Force
-Remove-Item $zip
-```
-
-Minimal config file (`~/.ultron/qdrant-native/config/production.yaml`):
-
-```yaml
-storage:
-  storage_path: ./storage
-  snapshots_path: ./snapshots
-
-service:
-  host: 127.0.0.1
-  http_port: 6333
-  grpc_port: 6334
-
-log_level: INFO
-```
-
-Boot is handled by `~/.ultron/scripts/qdrant/ensure-qdrant.ps1` — it
-launches `qdrant.exe` hidden on SessionStart and on user logon via the
-`ULTRON-QdrantBoot` scheduled task. Verify it's serving:
-
-```powershell
-Invoke-WebRequest http://localhost:6333/healthz
-# should return 200 OK
-```
-
-Skip this step with `install.ps1 -NoDocker` (the flag name is
-historical; ULTRON has not used Docker since v15.0.2). Semantic recall
-over the vault is then disabled; everything else works.
-
 ### 5. Directory layout
 
 ```powershell
@@ -220,7 +172,6 @@ $dirs = @(
   "$env:USERPROFILE\.ultron\plans",
   "$env:USERPROFILE\.ultron\skills",
   "$env:USERPROFILE\.ultron\scripts",
-  "$env:USERPROFILE\.ultron\brain_index",
   "$env:USERPROFILE\.ultron\.tmp",
   "$env:USERPROFILE\.ultron\personal",
   "$env:USERPROFILE\.ultron-vault",
@@ -285,26 +236,9 @@ Copy-Item $env:USERPROFILE\.ultron\agents\<name>.md `
           $env:USERPROFILE\.claude\agents\<name>.md
 ```
 
-Then, optionally, index the agent descriptions into Qdrant so the
-AI Router and the Agents tab can do semantic search across them:
-
-Open the Control Center command palette (`Ctrl/Cmd+K`) and run
-**Agents re-embed** (fuzzy: `agreem`). It re-vectorizes
-`~/.claude/agents/` into the `ultron_catalog` Qdrant collection via the
-native memory kernel — the old `embed_agents.py` script was retired when
-this moved to Rust.
-
-This step is optional. If you skip it, agents still load — only the
-semantic search across agent descriptions stays off.
-
-### 9. brain_index
-
-```powershell
-uv run python $env:USERPROFILE\.ultron\scripts\cockpit\brain_index.py build
-```
-
-If your vault is empty (fresh install) skip this — the desktop app
-runs the first build on its own once you start adding notes.
+There is no indexing step: the orchestrator reads the agent frontmatter from
+`~/.claude/agents/` directly. The semantic `ultron_catalog` index (Qdrant +
+E5) was retired on 2026-11-14 together with dense recall.
 
 ### 10. Control Center (Tauri app)
 
@@ -435,42 +369,6 @@ rustc --version
 If you install the `.deb` / `.AppImage` from the release page, Rust is
 not needed — those are prebuilt binaries.
 
-### 4. Qdrant (native binary)
-
-`install.sh` downloads the official Linux build to
-`~/.ultron/qdrant-native/`:
-
-```bash
-mkdir -p ~/.ultron/qdrant-native
-cd ~/.ultron/qdrant-native
-curl -fsSL -o qdrant.tar.gz \
-  https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-unknown-linux-gnu.tar.gz
-tar -xzf qdrant.tar.gz
-rm qdrant.tar.gz
-chmod +x qdrant
-
-mkdir -p config
-cat > config/production.yaml <<'YAML'
-storage:
-  storage_path: ./storage
-  snapshots_path: ./snapshots
-
-service:
-  host: 127.0.0.1
-  http_port: 6333
-  grpc_port: 6334
-
-log_level: INFO
-YAML
-```
-
-Verify the binary serves:
-
-```bash
-~/.ultron/qdrant-native/qdrant --config-path ~/.ultron/qdrant-native/config/production.yaml &
-curl -sf http://localhost:6333/healthz   # should print "healthz check passed"
-```
-
 ### 5. Desktop app
 
 Either install the prebuilt package (recommended):
@@ -511,12 +409,6 @@ skipped automatically on Linux.
 The bootstrap installer does **not** remove anything. To roll back by hand:
 
 ```powershell
-# stop the native Qdrant process (if running)
-Get-Process qdrant -ErrorAction SilentlyContinue | Stop-Process -Force
-
-# unregister the scheduled task that re-boots it on logon
-& $env:USERPROFILE\.ultron\scripts\qdrant\install-qdrant-bootcheck.ps1 uninstall
-
 # restore Claude settings backup
 Copy-Item $env:USERPROFILE\.claude\settings.json.bak-* `
           $env:USERPROFILE\.claude\settings.json -Force

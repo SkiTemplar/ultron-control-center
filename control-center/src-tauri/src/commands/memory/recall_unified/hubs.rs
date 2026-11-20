@@ -4,8 +4,8 @@
 // relación entre sí. Medido el 2026-09-23 sobre 154 prompts reales: una
 // restricción de sesión ajena salía en el 31 % y "Se eliminaron 2 capturas
 // repetidas" llevaba 1.118 accesos; en el pool del golden v3 otros tres items
-// aparecían en casi todas las queries. Son frases cortas y genéricas que E5
-// sitúa cerca de todo y BM25 premia por longitud.
+// aparecían en casi todas las queries. Son frases cortas y genéricas que el
+// retriever sitúa cerca de todo y BM25 premia por longitud.
 //
 // Dos piezas:
 //   - `compute_hubs` (subcomando `ultron-memory hubs`): repite prompts reales de
@@ -14,8 +14,8 @@
 //     `~/.ultron/cockpit/memory-hubs.json` los items por encima del umbral.
 //   - `hub_factor`: el motor multiplica el rrf_score de esos items por
 //     `ULTRON_HUB_PENALTY` (defecto 0,5; `1` o `off` lo desactiva). Es un
-//     down-rank, no un filtro: si la query sí trata de ese item, dense/sparse
-//     lo siguen subiendo.
+//     down-rank, no un filtro: si la query sí trata de ese item, el sparse
+//     lo sigue subiendo.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -225,17 +225,10 @@ pub fn compute_hubs(
 
     let mut injected: Vec<Vec<String>> = Vec::with_capacity(prompts.len());
     for p in &prompts {
-        // Mismo camino que el hot path del hook: híbrido, sin cross-encoder.
-        let ids = super::usage::build_trace_diagnostic(
-            &p.prompt,
-            8,
-            Some(&p.project),
-            false,
-            true,
-            false,
-        )
-        .map(|t| t.injected.into_iter().map(|e| e.canonical_id).collect())
-        .unwrap_or_default();
+        // Mismo camino que el hot path del hook.
+        let ids = super::usage::build_trace_diagnostic(&p.prompt, 8, Some(&p.project), false)
+            .map(|t| t.injected.into_iter().map(|e| e.canonical_id).collect())
+            .unwrap_or_default();
         injected.push(ids);
     }
 

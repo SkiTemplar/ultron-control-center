@@ -13,8 +13,10 @@ Contrato compartido entre `scripts/delegate.mjs` (Node), el backend del AI Route
   mismo motor (`tiers[tier].start` = `claude-p`, decisión del 2026-10-28), así que el nivel **ya
   no elige motor, solo el modelo** de cada uno (`tierModels`): en `claude-p`, Opus 5.5, Sonnet
   5.5 y Haiku 5.5. Si el motor no está disponible, falla, agota el plazo, no cambia nada, el check
-  sale rojo (con `relayOnCheckFail`) o el intento lanza una excepción de git, se pasa al siguiente
-  de `chain` y, al llegar al final, **se da la vuelta** hasta probar todos.
+  sale rojo (con `relayOnCheckFail`) o el intento lanza una excepción de git antes de lanzar el
+  motor, se pasa al siguiente de `chain` y, al llegar al final, **se da la vuelta** hasta probar
+  todos. Una excepción de git **después** del motor (`git add`, `write-tree`, `commit-tree`,
+  `update-ref`) no borra el worktree ni pasa el relevo si hay ficheros cambiados (§2, `reason`).
 - **Coste real**: `claude-p` gasta **la misma cuota del plan que la sesión principal**
   (`claude -p --safe-mode` conserva el login OAuth), con el tope por intento de `maxBudgetUsd`, y
   `status` no da dato de su cuota. `anthropic-api`, el segundo, gasta **créditos de pago**
@@ -186,7 +188,13 @@ Una línea por intento (incluidos los saltados) y una por desenlace:
   rama ya está en un commit posterior a ese `HEAD`. Lo comprueban `merge`, `list`, `clean` y `gc`;
   hasta que alguno corra tras el commit, la delegación sale como pendiente.
 - `reason`: motivo del desenlace del intento. Una excepción dentro del intento (git) es
-  `engine-fail` con `reason` `git: …` (rutas del repo sustituidas por `<repo>`) y el relevo sigue.
+  `engine-fail` con `reason` `git: …` (rutas del repo sustituidas por `<repo>`). Si salta al
+  preparar el worktree, antes del motor, se borran worktree y rama y el relevo sigue. Si salta
+  después (fases `engine`, `stage`, `judge`, `commit` o `cleanup`), el worktree se conserva sin
+  commit: el intento queda `kept: true` con `branch: null` y meta.json lleva `review` (fase,
+  motivo, ruta y ficheros cambiados). Con ficheros cambiados, o sin poder contarlos, el relevo se
+  corta y `run` dice la ruta y el siguiente paso; `gc` no lo borra y `list` lo señala hasta un
+  `clean <id>`.
 
 ## 3. `node scripts/delegate.mjs status --json`
 

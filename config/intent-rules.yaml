@@ -15,8 +15,7 @@
 #   agent-skills:plan -> hiper-plans; superpowers:test-driven-development -> agent test-automator;
 #   superpowers:systematic-debugging -> agent debugger; superpowers:requesting-code-review ->
 #   agent code-reviewer; database-schema-designer -> postgres-patterns; security-review ->
-#   agent security-auditor. cockpit/skill-lazy/phantom-ids.selftest.mjs falla si un
-#   skill/agent de este fichero no existe en disco.
+#   agent security-auditor.
 version: 1
 rules:
 

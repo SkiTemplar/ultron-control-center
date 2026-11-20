@@ -1,8 +1,34 @@
 # Changelog
 
+<!-- v15.9.0 -->
+## v15.9.0 - 2026-11-14
+
+Errores corregidos:
+- devolver las tarjetas a su sitio tras cambios de pantalla
+- las exclusiones con ruta se anclan en USERPROFILE
+- claves por .env/registro, 429 con pausa por fuente y cortocircuito de Semantic Scholar
+
+Anadido:
+- cinco temas nuevos y selector de fuente del chat
+- fricciones del 2026-11-02 al 2026-11-11
+- plantillas Next.js + Supabase y Expo
+- Fable 5.2 seleccionable a mano en Sessions
+- Remote Control oculto mientras haya una ventana de Sessions
+
+
 ## Unreleased
 
+## [15.9.0] - 2026-11-12
+
+Release v15.9.0: primera etiquetada desde v15.7.0. El core (`pyproject.toml`) y el
+Control Center vuelven a compartir número de versión.
+
 ### Added
+- **Sessions: cinco temas y selector de fuente** (`control-center/src/sesiones/themes.ts`,
+  `fonts.ts`, 2026-11-12). Temas Bosque, Vino, Pizarra, Carbón y Neón (12 en
+  total, todos oscuros y con contraste AA comprobado por test). La fuente del
+  chat se elige en Ajustes con independencia del tema: Geist Mono (por
+  defecto), JetBrains Mono, Fira Code, Cascadia Code o Geist proporcional.
 - **Kanban al día desde la bitácora** (`hooks/scripts/lib/kanban-auto.js`,
   2026-10-23). Al resumir una sesión, `session-summarize-previous` pasa a la
   LLM las tarjetas abiertas con su id. La bitácora devuelve los cierres por id

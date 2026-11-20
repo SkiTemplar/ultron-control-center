@@ -278,6 +278,42 @@ export function classifyByDecision(check, statusOf) {
 // 12.6 CI de main
 // ---------------------------------------------------------------------------
 
+/** Runs verdes de ci.yml que entran en la mediana del check 12.5. */
+export const CI_DURATION_RUNS = 5;
+/** Criterio documentado del check 12.5: CI real por debajo de 300 s. */
+export const CI_DURATION_LIMIT_S = 300;
+
+/**
+ * Duracion real de la CI (check 12.5): mediana de los ultimos
+ * CI_DURATION_RUNS runs verdes de ci.yml (gh run list --json
+ * databaseId,createdAt,updatedAt). Un run suelto es ruido: el de un release
+ * cambia las claves de cache y tarda mas (371 s el 2026-11-11, con una mediana
+ * de 291 s en los cinco ultimos). El limite no se relaja. Con menos runs de
+ * los necesarios, rojo; sin gh o sin red, skip.
+ */
+export function ciDurationVerdict({ ok, stdout, stderr }) {
+  const raw = `${stdout ?? ""}${stderr ?? ""}`.trim();
+  if (!ok) return { skip: true, detail: `gh no disponible o sin red: ${raw.slice(0, 120) || "(sin salida)"}` };
+  let runs;
+  try { runs = JSON.parse(String(stdout ?? "").trim()); } catch {
+    return { skip: true, detail: `gh devolvio JSON no parseable: ${raw.slice(0, 120)}` };
+  }
+  if (!Array.isArray(runs)) return { pass: false, detail: "gh no devolvio una lista de runs" };
+  const secs = runs
+    .map((r) => (Date.parse(r.updatedAt) - Date.parse(r.createdAt)) / 1000)
+    .filter((s) => Number.isFinite(s) && s >= 0)
+    .map(Math.round);
+  if (secs.length < CI_DURATION_RUNS) {
+    return { pass: false, detail: `${secs.length} runs verdes con duracion valida (hacen falta ${CI_DURATION_RUNS})` };
+  }
+  const ultimos = secs.slice(0, CI_DURATION_RUNS);
+  const median = [...ultimos].sort((a, b) => a - b)[Math.floor(CI_DURATION_RUNS / 2)];
+  return {
+    pass: median < CI_DURATION_LIMIT_S,
+    detail: `mediana ${median}s de los ${CI_DURATION_RUNS} ultimos runs verdes [${ultimos.join(", ")}] (limite ${CI_DURATION_LIMIT_S}s)`,
+  };
+}
+
 /**
  * Conclusion del ultimo run de CI en main (gh run list --json conclusion,status).
  * Rojo si no es success; skip si gh no esta disponible, no hay red o el run

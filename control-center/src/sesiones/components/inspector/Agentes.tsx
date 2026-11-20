@@ -11,6 +11,7 @@ import type { AgentNode, EngineTask, SessionId, SessionInfo } from "../../types"
 import { relayTasks, relayTurnTokens } from "../hud/hud-data";
 import { prettyModel } from "../TopBar";
 import { openAgentThread as open } from "../../open-agents";
+import { DelegationRuns, useDelegations } from "./Delegaciones";
 import { externalRuns, type ExternalRun } from "./externos";
 import { NoSession } from "./Inspector";
 
@@ -54,6 +55,9 @@ function nodeTitle(a: AgentNode): string {
   return a.description ? `${a.description}\n${hint}` : hint;
 }
 
+/** Modelo de un motor externo; sin dato se dice, no se supone uno. */
+const engineModel = (model: string | null | undefined): string => model || "modelo por defecto";
+
 function Branch({ nodes, parent, session, current }: { nodes: AgentNode[]; parent: string | null; session: SessionInfo; current: string | null }) {
   const kids = liveFirst(nodes.filter((n) => n.parentAgentId === parent));
   if (kids.length === 0) return null;
@@ -63,7 +67,7 @@ function Branch({ nodes, parent, session, current }: { nodes: AgentNode[]; paren
         <div key={a.agentId} className="tree">
           <button className="node" aria-current={current === a.agentId} onClick={(e) => open(session.id, a.agentId, e.shiftKey)} title={nodeTitle(a)}>
             <span className={`dot ${a.status}`} />
-            <span className="t">{a.type} <small>· {formatTokens(a.tokens)}</small></span>
+            <span className="t">{a.type} <small>· {a.model ? `${prettyModel(a.model)} · ` : ""}{formatTokens(a.tokens)}</small></span>
             <span className="badge num">{badge(a)}</span>
             <span className="s">{a.description}</span>
             <TurnMeter a={a} />
@@ -118,7 +122,7 @@ const EXTERNAL_STATUS: Record<ExternalRun["status"], string> = {
   expired: "caducada",
 };
 
-/** Codex, AGY o Gemini lanzados por Claude con Bash (`externos.ts`). */
+/** Codex, AGY o Gemini lanzados por Claude con Bash (`externos.ts`); `delegate.mjs` va en `Delegaciones.tsx`. */
 function ExternalRuns({ runs }: { runs: ExternalRun[] }) {
   if (runs.length === 0) return null;
   return (
@@ -126,7 +130,7 @@ function ExternalRuns({ runs }: { runs: ExternalRun[] }) {
       {runs.map((r) => (
         <div key={r.id} className={`node ${r.engine}`} title={r.status === "expired" ? "Lanzado por Claude con Bash; el turno acabó sin resultado" : "Lanzado por Claude con Bash"}>
           <span className={`dot ${r.engine} ${r.status}`} />
-          <span className="t">{r.label} <small>Bash</small></span>
+          <span className="t">{r.label} <small>{engineModel(r.model)} · Bash</small></span>
           <span className="badge num">{EXTERNAL_STATUS[r.status]}</span>
           <span className="s">{r.description}</span>
         </div>
@@ -163,7 +167,7 @@ function RelayNodes({ tasks, sessionId }: { tasks: EngineTask[]; sessionId: Sess
         return (
           <button key={t.id} className={`node ${t.engine}`} data-testid={`relevo-${t.id}`} onClick={() => goToEngineTask(sessionId, t.id)} title="Ir al bloque de la tarea en el chat">
             <span className={`dot ${t.engine} ${t.status}`} />
-            <span className="t">{ENGINE_LABEL[t.engine]} <small>relevo · {RELAY_STATUS[t.status]}</small></span>
+            <span className="t">{ENGINE_LABEL[t.engine]} <small>{engineModel(t.model)} · relevo · {RELAY_STATUS[t.status]}</small></span>
             <span className="badge num">{t.events.length} ev{tokens === null ? "" : ` · ${formatTokens(tokens)} tok`}</span>
             <span className="s">{t.prompt}</span>
           </button>
@@ -179,6 +183,7 @@ export function Agentes({ session, currentAgent }: { session: SessionInfo | null
   const relay = useStore((s) => (session ? s.relays[session.id] ?? null : null));
   const sessionStatus = session?.status;
   const external = useMemo(() => externalRuns(state.messages, sessionStatus), [state.messages, sessionStatus]);
+  const delegations = useDelegations(session?.id ?? null);
   if (!session) return <NoSession />;
   const running = state.agents.filter((a) => a.status === "running").length;
   const relayed = relayTasks(engines, relay, session.id);
@@ -210,7 +215,7 @@ export function Agentes({ session, currentAgent }: { session: SessionInfo | null
             {tasks.map((t) => (
               <div key={t.id} className={`node ${t.engine}`}>
                 <span className={`dot ${t.engine} running`} />
-                <span className="t">{ENGINE_LABEL[t.engine]} <small>{t.kind === "opinion" ? "segunda opinión" : t.engine === "codex" ? t.mode : "tarea"}</small></span>
+                <span className="t">{ENGINE_LABEL[t.engine]} <small>{engineModel(t.model)} · {t.kind === "opinion" ? "segunda opinión" : t.engine === "codex" ? t.mode : "tarea"}</small></span>
                 <span className="badge num">{t.events.length} ev</span>
                 <span className="s">{t.prompt}</span>
                 <span className="meter"><i style={{ width: `${Math.min(95, t.events.length * 10)}%` }} /></span>
@@ -220,8 +225,9 @@ export function Agentes({ session, currentAgent }: { session: SessionInfo | null
         )}
         <RelayNodes tasks={relayed} sessionId={session.id} />
         <ExternalRuns runs={external} />
+        <DelegationRuns runs={delegations.runs} error={delegations.error} />
       </div>
-      {state.agents.length === 0 && external.length === 0 && relayed.length === 0 && <p className="note">Sin subagentes.</p>}
+      {state.agents.length === 0 && external.length === 0 && relayed.length === 0 && delegations.runs.length === 0 && <p className="note">Sin subagentes.</p>}
     </>
   );
 }

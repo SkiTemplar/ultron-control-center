@@ -41,6 +41,11 @@
  * Critical when ULTRON runs with `--dangerously-skip-permissions`: it is the
  * tripwire that stops an agent from reading the user's secrets.
  *
+ * Doble intento (2026-11-16, lib/double-attempt.js): en `bypassPermissions` un
+ * 'ask' sale en 'deny' al primer intento y la misma llamada repetida en <120 s
+ * pasa. Los 'deny' duros no cambian, la pausa se mira antes y fuera de bypass
+ * (o con el estado roto) sigue el 'ask'.
+ *
  * Port 2026-08-11 (audit 08-09 #4): reescrito de Python a Node para eliminar
  * los ~200ms de arranque `uv run python` que pagaba CADA tool call del matcher
  * (Read|Edit|Write|NotebookEdit|Bash, hook sincrono en el hot path). Mismas
@@ -58,7 +63,7 @@
  * una sola llamada a `observe`, y por eso no dejaba ningun rastro en
  * hook-timing.jsonl — no habia forma de saber si el tripwire se habia
  * disparado alguna vez. Ahora cada ejecucion deja su linea de timing y las
- * que bloquean anotan ADEMAS `decision` (deny|ask), `rule` (el NOMBRE de la
+ * que bloquean anotan ADEMAS `decision` (deny|ask|double-deny|double-pass), `rule` (el NOMBRE de la
  * regla que caso) y `tool`.
  *
  * Lo que NO se registra, a proposito: la ruta. Anotar la ruta bloqueada en un
@@ -92,6 +97,14 @@ let classifyControlWrite = () => null;
 let neutralizeLiteralHeredocs = (command) => command;
 try {
   ({ classifyControlWrite, neutralizeLiteralHeredocs } = require('./lib/guard-control-files'));
+} catch (e) {
+  obs.logHookError('deny-secrets', e);
+}
+
+// Doble intento de los 'ask' en bypass (lib/double-attempt.js); sin ella, 'ask'.
+let handleAsk = () => ({ handled: false });
+try {
+  ({ handleAsk } = require('./lib/double-attempt'));
 } catch (e) {
   obs.logHookError('deny-secrets', e);
 }
@@ -631,6 +644,7 @@ const RULE_IDS = [
   ['environment secret dump', 'env-dump'],
   ['deny-secrets pause file', 'pause-file'],
   ['uni deliverable marker', 'uni-marker'],
+  ['double-attempt state file', 'double-attempt-file'],
   ['classifier error', 'classifier-error'],
   [TOO_LARGE_REASON, 'input-too-large'],
 ];
@@ -655,12 +669,17 @@ function denyMessage(reason) {
     return `ULTRON deny-secrets blocked: ${reason}. El marcador del modo uni ` +
       `lo crea project-create.mjs; se cambia a mano, fuera del agente. Leerlo con Read sigue permitido.`;
   }
+  if (rule === 'double-attempt-file') {
+    return `ULTRON deny-secrets blocked: ${reason}. Las marcas del doble intento ` +
+      `solo las escribe el propio hook; para repetir una llamada bloqueada, repitela tal cual.`;
+  }
   return `ULTRON deny-secrets blocked: ${reason}. Credential files are ` +
     `off-limits to the agent — open it from a manual shell if ` +
     `genuinely needed.`;
 }
 
-function handle(raw) {
+/** `opts` = {now, doubleAttemptFile}: reloj y estado del doble intento (selftest). */
+function handle(raw, opts = {}) {
   let data;
   try {
     data = JSON.parse(String(raw || '').replace(/^﻿/, ''));
@@ -704,6 +723,9 @@ function handle(raw) {
     return null;
   }
   if (decision === 'ask') {
+    const doble = handleAsk({ hook: 'deny-secrets', etiqueta: `deny-secrets/${ruleIdFor(reason)}`, reason, data,
+      opts, systemPrefix: 'ULTRON deny-secrets', annotate: obs.annotate });
+    if (doble.handled) return doble.out;
     return JSON.stringify({
       systemMessage:
         `ULTRON deny-secrets: ${reason} — requiere permiso explicito del ` +

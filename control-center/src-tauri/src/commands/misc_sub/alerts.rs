@@ -47,6 +47,26 @@ pub async fn read_changelog(limit: Option<usize>) -> Result<Vec<serde_json::Valu
     read_jsonl_tail::<serde_json::Value>(path, lim)
 }
 
+/// Máximo de caracteres del campo `source` de una alerta de la UI.
+const UI_ALERT_SOURCE_MAX_CHARS: usize = 80;
+/// Máximo de caracteres del campo `message` de una alerta de la UI.
+const UI_ALERT_MESSAGE_MAX_CHARS: usize = 600;
+
+/// Recorta `source` y `message` por carácter, no por byte: `String::truncate`
+/// hace panic si el corte cae dentro de un carácter UTF-8 de varios bytes
+/// («á», «ñ») y la alerta se perdería. El mensaje se aplana a una línea y,
+/// si se recorta, se marca con `…`.
+fn clamp_ui_alert_fields(source: &str, message: &str) -> (String, String) {
+    let src = crate::toast_emit::cap_chars(source, UI_ALERT_SOURCE_MAX_CHARS);
+    let flat = message.replace(['\r', '\n'], " ");
+    if flat.chars().count() <= UI_ALERT_MESSAGE_MAX_CHARS {
+        return (src, flat);
+    }
+    let mut msg = crate::toast_emit::cap_chars(&flat, UI_ALERT_MESSAGE_MAX_CHARS);
+    msg.push('…');
+    (src, msg)
+}
+
 /// Append a UI-side alert to alerts.jsonl so Notifications picks it up.
 /// Used by the frontend's window.onerror / onunhandledrejection so failures
 /// in the webview don't get swallowed silently — they show up alongside
@@ -63,13 +83,7 @@ pub async fn record_ui_alert(
         "info" | "warn" | "critical" | "blocking" => severity,
         _ => "warn".to_string(),
     };
-    let mut src = source;
-    src.truncate(80);
-    let mut msg = message.replace(['\r', '\n'], " ");
-    if msg.len() > 600 {
-        msg.truncate(600);
-        msg.push('…');
-    }
+    let (src, msg) = clamp_ui_alert_fields(&source, &message);
     if msg.trim().is_empty() {
         return Ok(());
     }
@@ -151,4 +165,33 @@ pub async fn record_ui_alert(
     f.write_all(line.as_bytes())
         .map_err(|e| format!("append alert: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_ui_alert_fields;
+
+    #[test]
+    fn recorta_multibyte_que_cruza_los_bytes_80_y_600_sin_panic() {
+        // 79 bytes ASCII + «ñ» (2 bytes): el byte 80 cae dentro de la «ñ».
+        let source = format!("{}ñ-origen", "s".repeat(79));
+        // 599 bytes ASCII + «á»: el byte 600 cae dentro de la «á».
+        let message = format!("{}áéíóú resto del stderr", "m".repeat(599));
+        assert!(!source.is_char_boundary(80));
+        assert!(!message.is_char_boundary(600));
+
+        let (src, msg) = clamp_ui_alert_fields(&source, &message);
+
+        assert_eq!(src.chars().count(), 80);
+        assert!(src.ends_with('ñ'));
+        assert_eq!(msg.chars().count(), 601);
+        assert!(msg.ends_with("á…"));
+    }
+
+    #[test]
+    fn no_recorta_ni_marca_lo_que_cabe_y_aplana_saltos_de_linea() {
+        let (src, msg) = clamp_ui_alert_fields("origen", "línea 1\r\nlínea 2");
+        assert_eq!(src, "origen");
+        assert_eq!(msg, "línea 1  línea 2");
+    }
 }

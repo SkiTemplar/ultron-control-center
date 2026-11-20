@@ -1,6 +1,6 @@
 [project]
 name = "ultron"
-version = "15.7.0"
+version = "15.9.0"
 requires-python = ">=3.12"
 dependencies = [
     "bashlex>=0.18",
@@ -10,11 +10,6 @@ dependencies = [
     "rich>=15.0",
     "textual>=8.0",
     "tiktoken>=0.12",
-    # v14.6 PERFECT MEMORY
-    "qdrant-client>=1.10",
-    "sentence-transformers>=3.0",
-    # v14.8 ULTRA POLISH — fast ONNX embeddings for hook query path
-    "fastembed>=0.3,<1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

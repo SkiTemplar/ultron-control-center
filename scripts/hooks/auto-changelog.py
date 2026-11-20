@@ -172,14 +172,24 @@ def find_version_bump(commits: list[tuple[str, str]]) -> tuple[str, str, str] | 
 
 
 def already_recorded(changelog: Path, version: str) -> bool:
-    """True if the minor/major version anchor is already in CHANGELOG.md."""
+    """True if CHANGELOG.md already has a section for this version.
+
+    Recognises our own ``<!-- vX.Y.Z -->`` anchor and the two headings written
+    by hand: Keep a Changelog ``## [X.Y.Z]`` and ``## vX.Y.Z``. Without the
+    headings, a release changelog written by hand got a duplicate section on
+    the next commit (2026-11-14, v15.9.0).
+    """
     if not changelog.exists():
         return False
     try:
         text = changelog.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    return f"<!-- v{version} -->" in text
+    if f"<!-- v{version} -->" in text:
+        return True
+    v = re.escape(version)
+    heading = re.compile(rf"^##\s+(?:\[{v}\]|v{v})(?![\w.-])", re.MULTILINE)
+    return bool(heading.search(text))
 
 
 def already_buffered(pending: Path, version: str) -> bool:

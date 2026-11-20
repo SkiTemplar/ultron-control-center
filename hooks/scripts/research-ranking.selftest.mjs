@@ -4,17 +4,13 @@
  * etiquetadas a mano sobre datos reales de OpenAlex/Semantic Scholar
  * (__fixtures__/ranking-cases.json). Reproduce el bug reportado (un survey
  * generico muy citado tapando al paper pertinente) y el caso negativo (una
- * consulta sin relacion no debe inventar relevancia). RESEARCH_DISABLE_SEMANTIC
- * fuerza el camino sin daemon: el pool de 2 papers por caso ya cae bajo el
- * umbral minimo de dispersion (ver merge.js::embedCandidates), pero se
- * desactiva explicitamente para no depender de ese detalle interno.
+ * consulta sin relacion no debe inventar relevancia). Sin componente
+ * semantico desde el 2026-11-15: no necesita daemon.
  * Uso: node hooks/scripts/research-ranking.selftest.mjs   (exit 0 = verde)
  */
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-process.env.RESEARCH_DISABLE_SEMANTIC = '1';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -56,8 +52,8 @@ async function main() {
   {
     const c = cases.find((x) => x.id === 'C-sin-coincidencias');
     const { results: ranked, warnings } = await rankAndFilter(c.papers, { query: c.query });
-    A(ranked.every((p) => p.rankScore === 0), '[C] sin relevance_score/rank/lexico/citas/semantico -> rankScore exactamente 0 (nada inventado)', JSON.stringify(ranked.map((p) => p.rankScore)));
-    A(warnings.some((w) => w.includes('semantico')), '[C] avisa explicitamente que el semantico no aporto senal (RESEARCH_DISABLE_SEMANTIC)', JSON.stringify(warnings));
+    A(ranked.every((p) => p.rankScore === 0), '[C] sin relevance_score/rank/lexico/citas -> rankScore exactamente 0 (nada inventado)', JSON.stringify(ranked.map((p) => p.rankScore)));
+    A(warnings.length === 0, '[C] sin avisos: el ranking ya no depende del daemon', JSON.stringify(warnings));
     for (const p of c.papers) {
       const lex = lexicalMatch(c.query, p);
       A(lex.score === 0, `[C] lexicalMatch da 0 para "${p.title.slice(0, 30)}..." (sin terminos en comun con la query)`, JSON.stringify(lex));

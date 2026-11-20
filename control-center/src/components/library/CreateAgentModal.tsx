@@ -1,8 +1,10 @@
 // Agent Creator v2 — multi-step wizard mirroring CreateSkillModal.
 //
 // Step 1: Pick a template (Empty / Reviewer / Researcher / Implementer /
-//         Debugger / Coordinator). Each template seeds tools, model, body.
-// Step 2: Frontmatter form — name, description, model preset, tools multi-select.
+//         Debugger / Coordinator). Each template seeds tools, model, maxTurns
+//         and body.
+// Step 2: Frontmatter form — name, description, exact model ID, maxTurns,
+//         tools multi-select.
 // Step 3: Body editor with live markdown preview.
 // Step 4: Target scope + final summary.
 
@@ -15,6 +17,7 @@ import {
   MIN_BODY_CHARS,
   type AgentTemplateId,
   applyName,
+  isValidMaxTurns,
 } from "./creatorTemplates";
 import type { Props, Step, ModelChoice } from "./create-agent/types";
 import { WizardFooter, WizardHeader } from "./wizard-ui";
@@ -45,7 +48,8 @@ export function CreateAgentModal({
     "Grep",
     "Glob",
   ]);
-  const [model, setModel] = useState<ModelChoice>("");
+  const [model, setModel] = useState<ModelChoice>(AGENT_TEMPLATES[0].model);
+  const [maxTurns, setMaxTurns] = useState<number>(AGENT_TEMPLATES[0].maxTurns);
   const [body, setBody] = useState("");
   const [bodyDirty, setBodyDirty] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(true);
@@ -64,6 +68,7 @@ export function CreateAgentModal({
   const descriptionValid =
     description.trim().length > 0 &&
     description.length <= MAX_DESCRIPTION_CHARS;
+  const maxTurnsValid = isValidMaxTurns(maxTurns);
   const bodyValid = body.trim().length >= MIN_BODY_CHARS;
   const targetValid = scope === "global" || !!projectId;
 
@@ -74,19 +79,22 @@ export function CreateAgentModal({
 
   const canAdvance: Record<Step, boolean> = {
     1: true,
-    2: nameValid && descriptionValid,
+    2: nameValid && descriptionValid && maxTurnsValid,
     3: bodyValid,
     4: targetValid,
   };
+  const canSubmit =
+    nameValid && descriptionValid && maxTurnsValid && bodyValid && targetValid;
 
   function pickTemplate(id: AgentTemplateId) {
     setTemplateId(id);
     const tpl = AGENT_TEMPLATES.find((t) => t.id === id) ?? AGENT_TEMPLATES[0];
-    // Apply the template's tools + model as sensible defaults; only seed
-    // the body if the user has not touched it yet (avoids losing edits
-    // when they flip between templates).
+    // Apply the template's tools, model and turn cap as sensible defaults;
+    // only seed the body if the user has not touched it yet (avoids losing
+    // edits when they flip between templates).
     setToolsSelected(tpl.tools);
     setModel(tpl.model);
+    setMaxTurns(tpl.maxTurns);
     if (!bodyDirty) {
       setBody(applyName(tpl.body, name || "agent"));
     }
@@ -143,7 +151,7 @@ export function CreateAgentModal({
   }
 
   async function submit() {
-    if (!nameValid || !descriptionValid || !bodyValid || !targetValid) return;
+    if (!canSubmit) return;
     setBusy(true);
     setErr(null);
     try {
@@ -151,8 +159,9 @@ export function CreateAgentModal({
         name,
         description: description.trim(),
         tools: toolsSelected,
-        model: model || null,
+        model,
         body,
+        maxTurns,
         target_scope: scope,
         target_project_id: scope === "project" ? projectId : null,
       });
@@ -197,6 +206,9 @@ export function CreateAgentModal({
               descriptionTooShort={descriptionTooShort}
               model={model}
               setModel={setModel}
+              maxTurns={maxTurns}
+              setMaxTurns={setMaxTurns}
+              maxTurnsValid={maxTurnsValid}
               toolsSelected={toolsSelected}
               toggleTool={toggleTool}
             />
@@ -230,6 +242,7 @@ export function CreateAgentModal({
                 description,
                 body,
                 model,
+                maxTurns,
                 toolsSelected,
               }}
             />
@@ -253,7 +266,7 @@ export function CreateAgentModal({
           step={step}
           submitLabel="Crear agente"
           canAdvance={canAdvance[step]}
-          canSubmit={nameValid && descriptionValid && bodyValid && targetValid}
+          canSubmit={canSubmit}
           busy={busy}
           onBack={back}
           onNext={advance}

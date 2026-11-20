@@ -74,6 +74,7 @@ export function createTauriApi(): SesionesApi {
     usage: async (req) => normalizeUsage(await invoke("sesiones_usage", { force: req?.force ?? false })),
     usagePace: (req) => invoke("sesiones_usage_pace", { force: req?.force ?? false }),
     enginesUsage: async (req) => normalizeEngines(await invoke("sesiones_engines_usage", { force: req?.force ?? false })),
+    delegations: (sessionId) => invoke("sesiones_delegations", { id: sessionId }),
     newWindow: (sessionId) => invoke("sesiones_new_window", { sessionId }),
     openControlCenter: () => invoke("sesiones_open_control_center"),
     openUrl: (url) => openUrl(url),

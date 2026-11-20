@@ -229,6 +229,22 @@ console.log("D - opt-out STOP_COMPRESS_DISABLED=1: nada de nada");
   A(readJsonl(REQ).length === reqBefore, "0 peticiones nuevas al sidecar", "hubo peticion");
 }
 
+// ---------- E: el tema no sale de un turno de sistema ----------
+console.log("E - tema de compact.json: primer prompt humano, no una task-notification");
+{
+  const sessionId = "sess-e";
+  const tp = writeTranscript(sessionId, [
+    { role: "user", text: "<task-notification>\n<task-id>b26tim95z</task-id>\n<status>completed</status>\n</task-notification>" },
+    { role: "assistant", text: "La tarea en segundo plano ha terminado." },
+    { role: "user", text: "revisa el material del océano" },
+    { role: "assistant", text: "Hecho." },
+  ]);
+  fire(sessionId, tp);
+  const c = readCompact(sessionId);
+  A(c && c.human.includes("Tema: revisa el material del océano"), "el tema es el prompt humano", c && c.human);
+  A(c && !c.human.includes("<task-notification>"), "sin XML de la notificación en el tema", c && c.human);
+}
+
 rmSync(TMPDIR, { recursive: true, force: true });
 console.log(fail === 0 ? "\nstop-compress-session selftest: VERDE" : `\nstop-compress-session selftest: ${fail} FALLO(S)`);
 process.exit(fail === 0 ? 0 : 1);

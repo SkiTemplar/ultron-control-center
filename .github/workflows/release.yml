@@ -299,7 +299,7 @@ jobs:
 
       # ─────────────────────────────────────────────────────────────────────────
       # ultron-memory sidecar. `tauri build` compiles every bin target of the
-      # crate (the `qdrant` feature is a default), so target/release already
+      # crate, so target/release already
       # holds it. Publishing it lets install.ps1/install.sh deploy the
       # prebuilt sidecar (scripts/install-memory-sidecar.*) instead of
       # forcing a full Rust compile on the user's machine.
@@ -346,7 +346,7 @@ jobs:
         run: |
           $src = "control-center/src-tauri/target/release/ultron-memory.exe"
           if (-not (Test-Path $src)) {
-            Write-Host "::error::ultron-memory.exe missing after tauri build — did the qdrant default feature get disabled?"
+            Write-Host "::error::ultron-memory.exe missing after tauri build — tauri build must compile every bin target of the crate"
             exit 1
           }
           $out = Join-Path $env:RUNNER_TEMP "ultron-memory-windows-x64.exe"
@@ -361,7 +361,7 @@ jobs:
         run: |
           src="control-center/src-tauri/target/release/ultron-memory"
           if [ ! -f "$src" ]; then
-            echo "::error::ultron-memory missing after tauri build — did the qdrant default feature get disabled?"
+            echo "::error::ultron-memory missing after tauri build — tauri build must compile every bin target of the crate"
             exit 1
           fi
           out="$RUNNER_TEMP/ultron-memory-linux-x64"

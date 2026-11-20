@@ -8,6 +8,7 @@ import type {
   AskAnswer,
   BackgroundOutcome,
   CommandOutcome,
+  DelegationRun,
 
 
 
@@ -117,6 +118,8 @@ export interface SesionesApi {
   usagePace(req?: { force?: boolean }): Promise<UsoPace>;
   /** Uso de Codex y agy (`sesiones_engines_usage`); `force` salta la caché de `agy /usage`. */
   enginesUsage(req?: { force?: boolean }): Promise<EnginesPlanUsage>;
+  /** Delegaciones de `delegate.mjs` lanzadas por la sesión (`sesiones_delegations`). */
+  delegations(sessionId: SessionId): Promise<DelegationRun[]>;
   /** Ventana adicional de Sessions; devuelve su etiqueta. */
   newWindow(sessionId?: string): Promise<string>;
   /** Trae la ventana principal del Control Center (`sesiones_open_control_center`). */

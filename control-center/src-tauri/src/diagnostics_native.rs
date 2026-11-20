@@ -72,7 +72,6 @@ pub struct AppHealth {
     pub projects_json_ok: bool,
     pub claude_in_path: bool,
     pub codex_in_path: bool,
-    pub qdrant_running: bool,
     pub severity: Severity,
 }
 
@@ -303,10 +302,6 @@ pub fn check_app_specific() -> AppHealth {
         .unwrap_or(false);
     let claude_in_path = which::which("claude").is_ok();
     let codex_in_path = which::which("codex").is_ok();
-    // Real memory stack: SQLite (brain.db) + Qdrant. Check if qdrant binary
-    // or the running service is present. We try a TCP connect on 6333 (default
-    // Qdrant HTTP port) — fast and doesn't require spawning a subprocess.
-    let qdrant_running = check_qdrant_reachable();
 
     let severity = if !claude_in_path {
         Severity::Error
@@ -319,7 +314,6 @@ pub fn check_app_specific() -> AppHealth {
         projects_json_ok,
         claude_in_path,
         codex_in_path,
-        qdrant_running,
         severity,
     }
 }
@@ -327,17 +321,6 @@ pub fn check_app_specific() -> AppHealth {
 fn projects_json_path() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     Some(home.join(".ultron").join("cockpit").join("projects.json"))
-}
-
-/// Check if the local Qdrant instance is reachable on 127.0.0.1:6333.
-/// Non-blocking: 300ms timeout so the diagnostic report stays fast.
-fn check_qdrant_reachable() -> bool {
-    use std::net::{SocketAddr, TcpStream};
-    let addr: SocketAddr = match "127.0.0.1:6333".parse() {
-        Ok(a) => a,
-        Err(_) => return false,
-    };
-    TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok()
 }
 
 pub fn run_full_diagnostic_native() -> DiagnosticReport {
@@ -464,7 +447,6 @@ mod tests {
                 projects_json_ok: true,
                 claude_in_path: app != Severity::Error,
                 codex_in_path: true,
-                qdrant_running: false,
                 severity: app,
             },
             max_severity: Severity::Error,

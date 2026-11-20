@@ -26,6 +26,14 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(here, '..');
 
+// Los hooks de git exportan GIT_DIR (en un worktree, la ruta absoluta de su gitdir)
+// y GIT_INDEX_FILE. Heredados, `git init` en el temporal reinicializa el repo real
+// como bare (core.bare = true en la config comun) y `git ls-files` lista el indice
+// real en vez del del directorio pedido. Todo git de este guardia va sin ellos.
+function gitEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GIT_')));
+}
+
 function countLines(text) {
   if (!text) return 0;
   const n = text.split('\n').length;
@@ -35,7 +43,7 @@ function countLines(text) {
 /** Fuentes del arbol segun git (con seguimiento y nuevos, sin ignorados), con ruta posix. */
 function sourceFiles(root, budget) {
   const r = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
-    cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
+    cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: gitEnv(),
   });
   if (r.error || r.status !== 0) throw new Error(`git ls-files fallo: ${r.error ? r.error.message : r.stderr}`);
   const excluded = (f) => (budget.exclude ?? []).some((p) => f.startsWith(p));
@@ -125,7 +133,7 @@ try {
     maxFileLines: 800, extensions: ['.js'], exclude: ['vendor/'],
     functions: [{ file: 'src/a.js', name: 'main', max: 50 }],
   };
-  const init = spawnSync('git', ['init', '-q'], { cwd: tmp, encoding: 'utf8' });
+  const init = spawnSync('git', ['init', '-q'], { cwd: tmp, encoding: 'utf8', env: gitEnv() });
   if (init.status !== 0) throw new Error(`git init fallo: ${init.stderr}`);
   fs.mkdirSync(path.join(tmp, 'src'));
   fs.writeFileSync(path.join(tmp, 'src', 'a.js'), relleno(801, fn(51)));
@@ -163,6 +171,23 @@ try {
   A(checkBudget(tmp, sinFn).length === 0, 'fichero ignorado por git -> no cuenta', 'ignorado medido');
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// 3. Entorno de hook: con GIT_DIR apuntando a otro repo, el git init del caso
+// sintetico no lo toca. Control: sin limpiar el entorno, si lo vuelve bare.
+const victima = fs.mkdtempSync(path.join(os.tmpdir(), 'code-size-budget-victima-'));
+const ajeno = fs.mkdtempSync(path.join(os.tmpdir(), 'code-size-budget-ajeno-'));
+try {
+  spawnSync('git', ['init', '-q'], { cwd: victima, encoding: 'utf8', env: gitEnv() });
+  const hookEnv = { ...process.env, GIT_DIR: path.join(victima, '.git') };
+  const bare = () => spawnSync('git', ['config', 'core.bare'], { cwd: victima, encoding: 'utf8', env: gitEnv() }).stdout.trim();
+  spawnSync('git', ['init', '-q'], { cwd: ajeno, encoding: 'utf8', env: gitEnv(hookEnv) });
+  A(bare() === 'false', 'git init con el entorno limpio no toca el repo de GIT_DIR', `core.bare=${bare()}`);
+  spawnSync('git', ['init', '-q'], { cwd: ajeno, encoding: 'utf8', env: hookEnv });
+  A(bare() === 'true', 'control: con GIT_DIR heredado, git init si vuelve bare el repo (el caso existe)', `core.bare=${bare()}`);
+} finally {
+  fs.rmSync(victima, { recursive: true, force: true });
+  fs.rmSync(ajeno, { recursive: true, force: true });
 }
 
 console.log(fail === 0 ? '\nSELFTEST code-size-budget: VERDE' : `\nSELFTEST code-size-budget: ROJO (${fail})`);

@@ -1,23 +1,19 @@
-// ULTRON Control Center — LiveSessionMonitor (panel global de orquestación).
+// ULTRON Control Center — LiveSessionMonitor (panel global de subagentes y workflows).
 //
-// Visor de la orquestación. No teclea nada. En el modo de producción (ligero,
-// ULTRON_ORCHESTRATE sin definir) el hook memory-orchestrate solo inyecta el
-// tono y no registra turnos, así que el panel lo dice en la cabecera en vez de
-// presentar como actual el último turno full que quedó en orchestrate.jsonl.
+// Visor de la actividad de subagentes y workflows de la sesión. No teclea nada.
 // Muestra:
-//   - el modo del hook (ligero / full) y, si lo hay, el último turno full con
-//     su fecha (prompt -> intent -> workflow -> agentes -> skills -> memorias)
-//   - los subagentes activos y recientes (hooks SubagentStart/Stop, vivos en
-//     los dos modos)
-//   - un previsualizador manual (orchestrate_prompt) de la orquestación full
+//   - las ejecuciones de workflows
+//   - los subagentes activos y recientes (hooks SubagentStart/Stop)
+//
+// El último turno orquestado, el indicador de modo del hook memory-orchestrate
+// y el previsualizador manual se retiraron el 2026-11-15 junto con el modo
+// full del hook: ya nadie registra turnos de orquestación.
 //
 // «Routing reciente» se retiró el 2026-10-23: leía el log del dispatcher, que
 // está desconectado desde el 2026-09-29 y solo escriben los arneses.
 //
-// CONTROLADO: el `feed` llega por prop desde SessionsPane, que hace UN solo poll
-// de live_session_feed para alimentar a la vez este panel y las tarjetas por
-// sesión (antes cada uno polleaba el mismo comando por separado). Mantiene en
-// propio el estado del previsualizador (orchestrate_prompt bajo demanda).
+// CONTROLADO: el `feed` llega por prop desde SessionsPane, que hace el poll de
+// live_session_feed junto con el de list_active_sessions.
 //
 // El panel de agentes delegados (delegations.jsonl + eventos
 // workflow:delegating/delegated) se retiró el 2026-10-17: no tenía productor.
@@ -28,8 +24,6 @@
 import type { LiveSessionFeed } from "../sessions/sessionTypes";
 import { fmtTime } from "../sessions/orchShared";
 import { Chevron } from "./live-session/Chevron";
-import { LastTurnPanel } from "./live-session/LastTurnPanel";
-import { OrchestrationPreviewPanel } from "./live-session/OrchestrationPreviewPanel";
 import { WorkflowRunsPanel } from "./live-session/WorkflowRunsPanel";
 import { RecentSubagentsPanel } from "./live-session/RecentSubagentsPanel";
 import { RunningSubagentsPanel } from "./live-session/RunningSubagentsPanel";
@@ -55,11 +49,6 @@ export default function LiveSessionMonitor({
   collapsed = false,
   onToggleCollapse,
 }: LiveSessionMonitorProps) {
-  const last = feed?.orchestrations[0] ?? null;
-  const mode = feed?.orchestrate_mode ?? "light";
-  const isFull = mode === "full";
-  const dotColor = isFull ? "var(--color-success, #3fb950)" : "var(--color-text-faint)";
-
   return (
     <div
       className="flex flex-col gap-3 rounded-md p-3"
@@ -82,18 +71,10 @@ export default function LiveSessionMonitor({
             </span>
           )}
           <span
-            className="inline-block h-2 w-2 rounded-full"
-            style={{
-              background: dotColor,
-              boxShadow: isFull ? `0 0 6px ${dotColor}` : "none",
-            }}
-            aria-hidden
-          />
-          <span
             className="text-[11px] font-semibold uppercase tracking-[0.07em]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            {isFull ? "Orquestación en vivo (modo full)" : "Orquestación (modo ligero)"}
+            Subagentes y workflows
           </span>
           {feed && (
             <span className="text-[9.5px]" style={{ color: "var(--color-text-faint)" }}>
@@ -118,15 +99,11 @@ export default function LiveSessionMonitor({
             </div>
           )}
 
-          <LastTurnPanel last={last} hasError={!!error} mode={mode} />
-
           <WorkflowRunsPanel />
 
           <RunningSubagentsPanel runningSubagents={feed?.running_subagents ?? []} />
 
           <RecentSubagentsPanel subagents={feed?.subagents ?? []} />
-
-          <OrchestrationPreviewPanel mode={mode} denseEnabled={feed?.dense_enabled ?? false} />
         </>
       )}
     </div>

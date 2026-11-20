@@ -1,5 +1,5 @@
 // Preferencias de ULTRON Sessions (por equipo, en localStorage): escala de la
-// interfaz, razonamiento visible, confirmación al terminar sesiones y modelo y
+// interfaz, tamaño de letra de los mensajes, razonamiento visible, confirmación al terminar sesiones y modelo y
 // effort de las sesiones nuevas y avisos de atención (attention.ts). El tema se
 // guarda aparte (themes.ts).
 
@@ -9,11 +9,16 @@ import type { Effort, EngineId } from "./types";
 
 export const SCALES = [90, 100, 110, 120] as const;
 export type Scale = (typeof SCALES)[number];
+/** Tamaño (px) del texto de los mensajes del chat; independiente de la escala. */
+export const CHAT_FONT_SIZES = [13, 14, 15, 16, 17] as const;
+export type ChatFontSize = (typeof CHAT_FONT_SIZES)[number];
 export const NEW_SESSION_MODELS = ["claude-opus-5-5", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2", "claude-fable-5-2[1m]"] as const;
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface Prefs {
   scale: Scale;
+  /** Letra del texto de los mensajes (px); la escala sigue aplicándose encima. */
+  chatFontSize: ChatFontSize;
   showThinking: boolean;
   /** Pliega herramientas y razonamiento de cada turno: solo queda el texto. */
   compactTools: boolean;
@@ -32,6 +37,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   scale: 100,
+  chatFontSize: 14,
   showThinking: true,
   compactTools: true,
   confirmKill: true,
@@ -62,6 +68,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     (ok(r[k]) ? r[k] : DEFAULT_PREFS[k]) as Prefs[K];
   return {
     scale: pick("scale", (v) => SCALES.includes(v as Scale)),
+    chatFontSize: pick("chatFontSize", (v) => CHAT_FONT_SIZES.includes(v as ChatFontSize)),
     showThinking: pick("showThinking", (v) => typeof v === "boolean"),
     compactTools: pick("compactTools", (v) => typeof v === "boolean"),
     confirmKill: pick("confirmKill", (v) => typeof v === "boolean"),
@@ -84,9 +91,11 @@ function load(): Prefs {
 
 export const prefsStore = createStore<Prefs, (p: Prefs) => Prefs>((p, fn) => fn(p), load());
 
-/** Aplica la escala de la interfaz (zoom de WebView2 sobre <html>). */
+/** Aplica la escala de la interfaz (zoom de WebView2 sobre <html>) y la letra del chat (--chat-fs). */
 export function applyPrefs(p: Prefs): void {
-  document.documentElement.style.setProperty("zoom", String(p.scale / 100));
+  const root = document.documentElement.style;
+  root.setProperty("zoom", String(p.scale / 100));
+  root.setProperty("--chat-fs", `${p.chatFontSize}px`);
 }
 
 export function setPrefs(patch: Partial<Prefs>): void {

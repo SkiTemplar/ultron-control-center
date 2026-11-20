@@ -92,8 +92,6 @@ Scripts under `scripts/cockpit/*.py`. Always run them with `uv run python <scrip
 
 | Script | What it does |
 |---|---|
-| `brain_index.py` | Manage the SQLite + FTS5 keyword index over the vault (`~/.ultron/brain_index/index.db`). |
-| `embed_skills.py` | Vectorise skills metadata into Qdrant (`ultron_skills` collection). Optional: needs a running Qdrant. |
 | `doctor.py` | Full system health check; `--fix` to apply safe auto-fixes; `--json` for machine-readable output. |
 | `registry_sync.py` | Rebuild cross-CLI skill manifests. |
 | `skill_vault.py` | Manage the skill vault: `search` / `restore` / `stats`. `registry` rewrites `skills/registry.json` (local, gitignored, nothing regenerates it automatically); the Skills tab reads `priority`, `usage_count` and `tags` from it. |
@@ -116,33 +114,12 @@ and `scripts/hooks/`; the ones above are the ones the UI surfaces directly.
 
 ---
 
-## 4. The `ultron` shell alias
+## 4. The `ultron` shell alias (retired)
 
-`scripts/cockpit/ultron.ps1` is a manual CLI front-end for the cockpit
-scripts on Windows. The Control Center does not call it (open and scan live
-in Rust). `install.ps1` does **not** add it to `$PROFILE`: run
-`ultron.ps1 alias` to print the function to paste into your profile. On Linux
-call the tools directly with `uv run python ~/.ultron/scripts/cockpit/<tool>.py`.
-
-Since 2026-10-08 it only dispatches subcommands whose target script exists:
-
-| Command | Purpose |
-|---|---|
-| `ultron status` | Projects summary, alerts hint and scheduler state. |
-| `ultron open <project>` / `projects` / `scan` | Launch a project in its IDE, browse or re-scan the registry. |
-| `ultron project ...` / `notes <id> ...` | `project_editor.py` and `project_notes.py` wrappers. |
-| `ultron claude` / `codex` | Spawn an interactive session in the current folder. |
-| `ultron app <name>` / `apps` | GUI app launcher registry. |
-| `ultron skills registry\|vault\|manifest ...` | `registry_sync.py`, `skill_vault.py`, `skill_manifest.py`. |
-| `ultron skill register\|list` | Re-index skills in `brain_index`. |
-| `ultron sync` / `sync-all` | Registry + manifest sync; `sync-all` adds brain index, MCP probe, deadwood and doctor. |
-| `ultron health` / `doctor [--fix\|--json]` / `deadwood` | Health checks. |
-| `ultron mcp health` | Probe all MCP servers and pretty-print the result. |
-| `ultron alerts ...` / `security ...` | Alerts bus and security audits. |
-| `ultron brain ...` / `index ...` / `config ...` | `brain_index.py` and `brain_config.py`. |
-| `ultron schedule install\|status\|uninstall` | Windows scheduled tasks from `cockpit/schedule-config.json`. |
-
-`ultron help` prints the full list.
+`scripts/cockpit/ultron.ps1` was retired on 2026-11-14: nothing called it and
+the profile function pointed to a path that no longer existed. Call the
+cockpit tools directly with `uv run python ~/.ultron/scripts/cockpit/<tool>.py`
+(section 3) or use the Control Center command palette (section 1).
 
 ---
 
@@ -177,7 +154,7 @@ read-only (emit `additionalContext`) or append to local scratch files.
 | `pupus-permission.js` | PermissionRequest | Send terminal permission requests to the Pupus speech bubble and return allow/deny; with no answer it does not decide and the terminal dialog takes over. |
 | `socratic-gate.js` | UserPromptSubmit | Inject the Socratic decision protocol. Per-project mode in `cockpit/projects.json` (`strict` default, `light`, `off`, `uni`); set it with `node scripts/project-socratic.mjs <id> <mode>`. |
 | `save-user-prompt.js` | UserPromptSubmit | Archive each non-trivial prompt to the daily markdown inbox. Does not write the SoT. |
-| `memory-orchestrate.js` | UserPromptSubmit | Light mode by default (only the tone); `ULTRON_ORCHESTRATE=full` restores recall, routing and delegation hints from `ultron-memory orchestrate`. |
+| `memory-orchestrate.js` | UserPromptSubmit | Injects only a non-default tone per prompt (full mode with recall, routing and delegation removed on 2026-11-14). |
 | `session-feedback-capture.js` | UserPromptSubmit | Capture `fb: si\|no\|estorbo [note]` into `logs/session-feedback.jsonl` and propose the note as a candidate. |
 | `run-project-tests-report.js` | UserPromptSubmit | Tell the model, once per result, which tests broke in the last automatic run. |
 | `context-guard.js` | UserPromptSubmit | From 200k tokens of context, decide with the session log whether to suggest compacting. |
@@ -210,9 +187,7 @@ exits 0 without aborting the event. If one misbehaves, remove its entry from
 > **De-registered (not live):** `codegraph-reminder.js`, `markdown-lint-hint.js`,
 > `ai-text-warn.js`, `load-cross-project-memory.js`, `session-start-override.js`
 > (2026-09-29/30) and `kanban-update-reminder.js` (2026-10-08), all deleted;
-> `routing-dispatcher.v2/v3.js` (kept in `cockpit/skill-lazy/`, not wired);
-> `ensure-qdrant.js`, `memory-warmup.js` and `qdrant-mirror-sync.js` (kept for
-> re-enabling dense recall); `route_quality_aggregator.py` (no longer a Stop
-> hook); `session-end-summary.js` (orphan: the Cowork plugin that packaged it was deleted on 2026-10-28). Older removals
+> the skill dispatcher v2/v3 and the dense-recall hooks (deleted on 2026-11-14); `route_quality_aggregator.py` (no longer a Stop
+> hook); the session-end summary and project-roster hooks (deleted on 2026-11-14). Older removals
 > (`mem0-sync.js`, `quota-capture.js`, `session-recall-inject.js`,
 > `workday-*`) are listed in the `deregistered` block of `manifest.json`.

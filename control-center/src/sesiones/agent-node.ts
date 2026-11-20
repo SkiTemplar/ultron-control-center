@@ -14,4 +14,6 @@ export interface AgentNode {
   workflowRun?: string | null;
   /** `maxTurns` del frontmatter de `~/.claude/agents/<tipo>.md`; `null` si no lo declara. */
   maxTurns?: number | null;
+  /** Modelo con el que responde (`message.model` de su transcript); `null` hasta su primer mensaje. */
+  model?: string | null;
 }

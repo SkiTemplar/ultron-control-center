@@ -49,7 +49,7 @@
 [CmdletBinding()]
 param(
     [hashtable]$PreviousProfile = @{},
-    [string]$Version = "v15.7.0",
+    [string]$Version = "v15.9.0",
     [switch]$DryRun
 )
 
@@ -90,8 +90,6 @@ $Catalog = @(
     @{ id="core_layout";     group="Core (required)";              label="Directory layout";         note="creates ~/.ultron, ~/.ultron-vault, ~/.claude/skills";          default=$true;  required=$true  }
 
     # ---- Memory (recommended) -----------------------------------------
-    @{ id="mem_qdrant";      group="Memory (recommended)";         label="Qdrant native";             note="semantic recall over vault - ~40 MB binary, no Docker";        default=$true;  required=$false }
-    @{ id="mem_brain_index"; group="Memory (recommended)";         label="brain_index";               note="SQLite FTS5 keyword index - ~10 sec init";                     default=$true;  required=$false }
     @{ id="mem_vault";       group="Memory (recommended)";         label="Vault structure";           note="~/.ultron-vault folders for L2 memory";                        default=$true;  required=$false }
 
     # ---- Claude Code integration --------------------------------------
@@ -359,8 +357,7 @@ foreach ($groupName in $groups) {
 # Live cost / time hint. Tauri build + npm install dominate.
 # ----------------------------------------------------------------------
 function Update-Status {
-    $minutes = 1   # baseline (dir layout + brain_index)
-    if ($Checkboxes["mem_qdrant"].Checked)      { $minutes += 1 }
+    $minutes = 1   # baseline (dir layout)
     if ($Checkboxes["cc_skills_comm"].Checked)  { $minutes += 1 }
     if ($Checkboxes["ui_npm"].Checked)          { $minutes += 2 }
     if ($Checkboxes["ui_tauri_build"].Checked)  { $minutes += 4 }

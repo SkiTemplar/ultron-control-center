@@ -2,19 +2,22 @@
 //
 // A reproducible, FAIL-SAFE way to measure recall@k against a fixed set of
 // "golden" queries with expected substrings. The harness drives the unified
-// hybrid recall pipeline (`recall_pack`) and reports, per query, whether ANY
+// FTS5 recall pipeline (`recall_pack`) and reports, per query, whether ANY
 // recovered summary contains ANY of the expected substrings (case-insensitive).
 //
 // Design notes:
 //   - PURE arithmetic (`EvalReport::from_results`, `score_query`) is isolated
-//     from the I/O side (`run`) so the math stays UNIT-TESTABLE without Qdrant,
-//     E5, the network, or API keys.
-//   - Degradation is total: if `recall_pack` errors (Qdrant/E5 offline, brain.db
-//     locked, ...), that query simply scores `hits=0, matched=false`. No panic,
+//     from the I/O side (`run`) so the math stays UNIT-TESTABLE without
+//     brain.db, the network, or API keys.
+//   - Degradation is total: if `recall_pack` errors (brain.db locked, FTS
+//     failure, ...), that query simply scores `hits=0, matched=false`. No panic,
 //     no propagation — a degraded eval is better than a crashed one.
 //   - `default_goldens()` embeds realistic queries for THIS system (memory /
 //     qdrant / recall / decisions / embeddings / orchestrator / sparse) so the
-//     harness ships with a baseline even on a fresh checkout.
+//     harness ships with a baseline even on a fresh checkout. The dense-era
+//     topics (qdrant, embeddings, RRF) stay on purpose: they query the CONTENT
+//     of brain.db, which still holds those decisions, not a retrieval path;
+//     changing them would break comparability with past recall@k figures.
 
 use crate::commands::memory::recall_unified::recall_pack_diagnostic;
 
@@ -217,30 +220,27 @@ fn score_query(
     // Each golden query is an INDEPENDENT recall. There is no longer a
     // cumulative per-session token budget to reset — every recall receives the
     // full per-call cap, so later queries in the same process are never starved.
-    // rerank=false: este es el smoke del doctor (fontaneria, no calidad) — con
-    // el cross-encoder el doctor pasa de ~10s a minutos y revienta timeouts.
-    let (hits, matched, ids) =
-        match recall_pack_diagnostic(&golden.query, k, project_id, false, false) {
-            Ok(pack) => {
-                let summaries: Vec<String> = pack
-                    .entries
-                    .iter()
-                    .filter_map(|e| e.summary.clone())
-                    .collect();
-                let matched = summaries_match(&summaries, &golden.expect_any_of);
-                let ids: Vec<String> = pack
-                    .entries
-                    .iter()
-                    .map(|e| e.canonical_id.clone())
-                    .collect();
-                (pack.entries.len(), matched, ids)
-            }
-            Err(e) => {
-                // Degrade quietly; a failing source must not abort the eval run.
-                eprintln!("[evals] recall_pack failed for '{}': {e}", golden.query);
-                (0, false, Vec::new())
-            }
-        };
+    let (hits, matched, ids) = match recall_pack_diagnostic(&golden.query, k, project_id, false) {
+        Ok(pack) => {
+            let summaries: Vec<String> = pack
+                .entries
+                .iter()
+                .filter_map(|e| e.summary.clone())
+                .collect();
+            let matched = summaries_match(&summaries, &golden.expect_any_of);
+            let ids: Vec<String> = pack
+                .entries
+                .iter()
+                .map(|e| e.canonical_id.clone())
+                .collect();
+            (pack.entries.len(), matched, ids)
+        }
+        Err(e) => {
+            // Degrade quietly; a failing source must not abort the eval run.
+            eprintln!("[evals] recall_pack failed for '{}': {e}", golden.query);
+            (0, false, Vec::new())
+        }
+    };
     (
         EvalResult {
             query: golden.query.clone(),
@@ -297,7 +297,7 @@ pub fn run(project_id: Option<&str>, k: usize) -> EvalReport {
 // ~942 positives each carrying `expect_ids`). It is ADDITIVE and FAIL-SAFE:
 //   - it does NOT touch `run()` / `recall_at_k` / the security gate semantics
 //     of the default `eval` subcommand;
-//   - a missing golden_set.json, an unreadable file, or a dead Qdrant/E5
+//   - a missing golden_set.json, an unreadable file, or a failing recall
 //     degrades to a well-formed `degraded = true` report (never a panic).
 // ===========================================================================
 

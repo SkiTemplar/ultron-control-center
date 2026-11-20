@@ -307,6 +307,15 @@ pub async fn sesiones_usage_pace(force: Option<bool>) -> Result<serde_json::Valu
     .await
 }
 
+/// Delegaciones de `delegate.mjs` lanzadas por la sesión `id` (`delegaciones`),
+/// para el árbol de Agentes.
+#[tauri::command]
+pub async fn sesiones_delegations(
+    id: String,
+) -> Result<Vec<super::delegaciones::DelegationRun>, String> {
+    blocking(move || super::delegaciones::de_sesion(&id)).await
+}
+
 /// Uso de las suscripciones de Codex y agy (`uso_motores`), aparte del de
 /// Claude: si uno falla, el otro sigue. `force` salta la caché de `agy /usage`.
 #[tauri::command]

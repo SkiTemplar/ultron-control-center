@@ -41,29 +41,13 @@ self-improve stats panel (`self_improve.rs`).
 | Tool | Purpose | Invocation |
 |---|---|---|
 | `scripts/cut-release.ps1` | Local-only release driver: verifies clean main, bumps coherent versions, creates an annotated (optionally signed) tag, pushes the tag. The GitHub Actions workflow takes over from the tag push. Documented in `docs/RELEASE-PROCESS.md`. | `.\scripts\cut-release.ps1 -NewVersion v15.5.15 [-DryRun] [-NoSign]` |
-| `scripts/delete-orphan-releases.ps1` | One-shot GitHub Releases admin tool: deletes Release entries whose tag has already been removed (GitHub does not auto-cascade). Needs a PAT with `repo` scope. | `$env:GITHUB_TOKEN = '<token>'; .\scripts\delete-orphan-releases.ps1 [-Tags @('v15.4.17')]` |
 | `scripts/sync-public.mjs` | Syncs the private monorepo into the public mirror (`ultron-control-center`). | `node scripts/sync-public.mjs` |
-
-## Memory eval & webponize tooling
-
-No Control Center / hook / CI caller: manual invocation only.
-
-| Tool | Purpose | Invocation |
-|---|---|---|
-| `scripts/golden-v2-ab.mjs` | A/B of the memory cross-encoder reranker: runs `ultron-memory.exe eval --golden <path>` twice (`ULTRON_RERANK=0` and `=1`) and compares recall@8/precision/MRR/nDCG/context_waste. Warns instead of declaring a tie when both passes are identical (sign that the daemon read the flag at startup). | `node scripts/golden-v2-ab.mjs [golden-path] [--only 0\|1]` |
-| `scripts/golden-v2-pool.mjs` | Builds the candidate pool for the v2 recall golden set from real prompts in `~/.claude/logs/orchestrate.jsonl`; writes `pool.json` and `labeling.md`. Followed by `golden-v2-compile.mjs`. | `node scripts/golden-v2-pool.mjs [--n 30] [--k 10] [--kx 4] [--days 30]` |
-| `scripts/new-web.mjs` | Scaffold for a `webponize` web project: creates `cockpit/projects/web-<slug>/`, registers it in `cockpit/projects.json` and adds the pipeline card through `scripts/kanban.mjs`. Next manual step: `scripts/deploy-variants.mjs`. | `node scripts/new-web.mjs <slug> "<Business>" [--tipo <sector>] [--maps <url>] [--tier front\|front+backend]` |
-| `scripts/tricolon-bench.js` | Regression bench for the "rule of three" pattern of the AI-text catalogue (`docs/research/patrones-texto-ia.json`), using the production compiler (`hooks/scripts/lib/ai-text-detector.js`). Warns on lookaround (Rust `regex` does not support it, so the JS detector and the Rust Lab would diverge). | `node scripts/tricolon-bench.js ['<candidate-regex>']` |
 
 ## Standalone tools without a runtime caller
 
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/skill-discovery.py` | Scans `~/.claude/skills/` for skills not mapped in the FAST PATH tables. | `uv run python scripts/skill-discovery.py [--verbose]` |
-| `scripts/memory-audit.py` | Manual audit of the Claude Code auto-memory files (`~/.claude/projects/*/memory/*.md`): missing frontmatter, invalid type, duplicates, stale entries, orphans in `MEMORY.md` (see `docs/protocols.md`). | `uv run python scripts/memory-audit.py [--fix-index]` |
 | `scripts/consistency_check.py` | Internal-consistency checks of the system. No hook calls it any more. | `uv run python scripts/consistency_check.py [--quiet]` |
-| `scripts/ultron-paths.ps1` | PowerShell sibling of `ultron_paths.py`. Nothing dot-sources it today. | `. scripts/ultron-paths.ps1; $UltronPaths.brain_index_db` |
-| `scripts/cockpit/ultron.ps1` | Manual CLI over the cockpit scripts (see `docs/COMMANDS.md` §4). | `scripts\cockpit\ultron.ps1 help` |
 
 ## Manual multi-CLI consensus tooling
 
@@ -106,12 +90,8 @@ to inspect and manage them.
 - `-PurgeExpired` always runs in WhatIf mode unless `-Force` is also passed.
 - No deletion happens without a `.zip` archive being confirmed on disk first
   (for `-Apply` and `-AutoCompress`).
-- Never pass `~/.ultron/.fastembed_cache` to this script (see below).
 
 ### .fastembed_cache policy
 
-`~/.ultron/.fastembed_cache` (override: `ULTRON_FASTEMBED_CACHE`) holds the
-ONNX model weights that `fastembed` downloads for dense recall (E5 and the
-cross-encoder, see `control-center/src-tauri/src/qdrant.rs`). Delete it only
-with the `ultron-memory` sidecar stopped; the next dense use re-downloads the
-models. With `ULTRON_DENSE=0` nothing reads it.
+`~/.ultron/.fastembed_cache` is a leftover of dense recall, removed on
+2026-11-14: nothing reads it any more and it can be deleted.

@@ -282,7 +282,7 @@ mod tests {
 
 /// Verificacion en runtime del camino completo (escribe en workflow-runs.db de
 /// esta maquina, por eso esta fuera de la suite). Ejecutar a mano con:
-/// `cargo test --features qdrant escribe_un_run_real -- --ignored --nocapture`
+/// `cargo test escribe_un_run_real -- --ignored --nocapture`
 #[cfg(test)]
 mod runtime_check {
     use super::*;

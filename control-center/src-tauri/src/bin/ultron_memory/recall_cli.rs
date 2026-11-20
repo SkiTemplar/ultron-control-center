@@ -14,28 +14,21 @@ use crate::to_json;
 /// `orchestrate <prompt> [--project X] [--sparse]`.
 pub(crate) fn orchestrate(args: &[String], project: Option<&str>) -> Result<Value, String> {
     let prompt = positional(args)?;
-    // `--sparse` (2026-09-07): respaldo del hook cuando el daemon YA no
-    // ha contestado. Ni vuelve a esperarle (con el daemon vivo pero
-    // lento, la espera de 30 s de abajo se comia entero el cap de 6 s
-    // del hook y el "respaldo" nunca resolvia nada: asi entro sin
-    // memoria el primer prompt del 2026-09-07) ni carga E5 (1,5 GB
-    // compitiendo por CPU con el daemon que se esta recuperando):
-    // FTS5 + reglas, en menos de un segundo.
+    // `--sparse` (2026-09-07): respaldo del hook cuando el daemon YA no ha
+    // contestado; no vuelve a esperarle (con el daemon vivo pero lento, la
+    // espera de 30 s de abajo se comia entero el cap de 6 s del hook) y
+    // resuelve aqui mismo. El nombre es historico: desde el 2026-11-14 todo
+    // el recall es sparse (FTS5), con o sin el flag.
     if has_flag(args, "--sparse") {
-        return to_json(ul::orchestrator::orchestrate(&prompt, project, false));
+        return to_json(ul::orchestrator::orchestrate(&prompt, project));
     }
-    // Si el daemon vive, que responda EL: tiene E5 caliente y este
-    // proceso no llega a cargar el modelo. Medido el 2026-08-15: un
-    // one-shot que carga E5 pica en 1,7 GB, y 3,2 GB si ademas entra el
-    // cross-encoder. Sin daemon, se resuelve aqui como siempre.
+    // Si el daemon vive, que responda el; sin daemon, se resuelve aqui.
     if let Some(v) =
         ul::daemon_client::orchestrate(&prompt, project, std::time::Duration::from_secs(30))
     {
         return Ok(v);
     }
-    // CLI one-shot fallback for the hot path. dense=TRUE: quality-first
-    // (full hybrid recall + semantic match); see serve.rs for rationale.
-    to_json(ul::orchestrator::orchestrate(&prompt, project, true))
+    to_json(ul::orchestrator::orchestrate(&prompt, project))
 }
 
 /// `--cross` / `--all-projects`: recall sobre todo el cerebro (Secret sigue fuera).
@@ -44,7 +37,7 @@ fn cross_flag(args: &[String]) -> bool {
 }
 
 /// `trace <query>`: diagnostico completo del retrieval (cat1, 2026-07-02):
-/// dense/sparse/fused con ranks + injected/discarded CON RAZON (token cap,
+/// sparse/fused con ranks + injected/discarded CON RAZON (token cap,
 /// governance, rank). Es build_trace serializado, disponible headless para
 /// diagnosticar el golden set.
 pub(crate) fn trace(args: &[String], project: Option<&str>) -> Result<Value, String> {
@@ -56,8 +49,6 @@ pub(crate) fn trace(args: &[String], project: Option<&str>) -> Result<Value, Str
             8,
             project,
             cross_flag(args),
-            true,
-            true, // paridad con el eval: el trace diagnostica el path de calidad
         )?,
     )
 }
@@ -72,15 +63,12 @@ pub(crate) fn recall(args: &[String], project: Option<&str>) -> Result<Value, St
     // `--diagnostic` (2026-10-23): benchmarks y medidores; el recall no
     // deja evento Retrieved ni toca access_count/last_accessed_at.
     let diagnostic = has_flag(args, "--diagnostic");
-    // Igual que orchestrate: el daemon primero. Aqui el ahorro es el
-    // mayor de todos, porque el recall manual pide cross-encoder y ese
-    // camino cargaba los DOS modelos en este proceso (3,2 GB medidos).
+    // Igual que orchestrate: el daemon primero; sin daemon, aqui.
     if let Some(v) = ul::daemon_client::recall(
         &query,
         8,
         project,
         cross,
-        true,
         diagnostic,
         std::time::Duration::from_secs(60),
     ) {
@@ -91,8 +79,7 @@ pub(crate) fn recall(args: &[String], project: Option<&str>) -> Result<Value, St
     } else {
         ul::commands::memory::recall_unified::recall_pack
     };
-    // recall manual explicito: calidad con cross-encoder
-    to_json(pack(&query, 8, project, cross, true)?)
+    to_json(pack(&query, 8, project, cross)?)
 }
 
 /// `hubs [--prompts 200] [--threshold 0.2] [--min-count 5] [--apply] [--with-penalty]`.
@@ -136,7 +123,7 @@ pub(crate) fn eval(args: &[String], project: Option<&str>) -> Result<Value, Stri
     }
     let mut v = to_json(ul::memory::evals::run(project, 8))?;
     if has_flag(args, "--golden") {
-        let gm = ul::memory::evals::run_golden_metrics(project, 8, true);
+        let gm = ul::memory::evals::run_golden_metrics(project, 8);
         if let Value::Object(ref mut map) = v {
             map.insert("golden_metrics".to_string(), to_json(gm)?);
         }
@@ -161,7 +148,7 @@ fn eval_external_golden(args: &[String], golden_path: &str) -> Result<Value, Str
 /// `eval-full`: ONLY the ranking-quality metrics over the real golden set
 /// (precision@k/recall@k/MRR/nDCG/context-waste + security gate). FAIL-SAFE:
 /// degrades to an all-zero `degraded` report if the golden set is missing or
-/// Qdrant/E5 is offline.
+/// recall fails.
 pub(crate) fn eval_full(project: Option<&str>) -> Result<Value, String> {
-    to_json(ul::memory::evals::run_golden_metrics(project, 8, true))
+    to_json(ul::memory::evals::run_golden_metrics(project, 8))
 }

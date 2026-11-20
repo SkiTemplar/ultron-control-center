@@ -12,7 +12,7 @@
 # What it does (no git clone required):
 #   1. Fetches the latest GitHub release of the public repo (SkiTemplar/ultron-control-center).
 #   2. Downloads `ultron-system-<ver>.zip` + .sha256, verifies, extracts to ~/.ultron.
-#   3. Runs install.sh (which wires skills / agents / hooks / Qdrant).
+#   3. Runs install.sh (which wires skills / agents / hooks).
 #   4. Downloads the Linux Tauri artifact (.AppImage preferred, .deb fallback)
 #      and installs it to ~/.local/bin + writes a .desktop launcher entry.
 #

@@ -9,8 +9,7 @@
 // selftest sin clasificar o una entrada que ya no existe, igual que
 // hooks/regen-manifest.js con los hooks.
 //
-// Descubre: hooks/**/*.selftest.mjs, scripts/**/*.selftest.mjs,
-// cockpit/skill-lazy/*.selftest.mjs (routing de skills, desde 2026-10-03) y
+// Descubre: hooks/**/*.selftest.mjs, scripts/**/*.selftest.mjs y
 // hooks/scripts/tests/test-*.js.
 //
 // Uso:
@@ -35,7 +34,7 @@ import { spawn } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const MANIFEST = path.join(ROOT, 'scripts', 'selftests.manifest.json');
-const SCAN_DIRS = ['hooks', 'scripts', 'cockpit/skill-lazy'];
+const SCAN_DIRS = ['hooks', 'scripts'];
 const SKIP_DIRS = new Set(['node_modules', '.git', 'target', 'fixtures', '_legacy_archive']);
 
 const args = process.argv.slice(2);

@@ -7,19 +7,14 @@
 //!
 //!   ultron-memory resume [--project X]          # SessionStart -> bounded resume
 //!   ultron-memory orchestrate <prompt> [--project X]  # UserPromptSubmit -> route
-//!   ultron-memory recall <query> [--project X] [--cross]  # hybrid recall pack
+//!   ultron-memory recall <query> [--project X] [--cross]  # FTS5 recall pack
 //!                                               # --cross|--all-projects =
 //!                                               # whole-brain recall (any project;
 //!                                               # Secret still excluded)
 //!   ultron-memory stats                         # memory health counts
-//!   ultron-memory reindex                       # rebuild the dense index
-//!   ultron-memory catalog [--agents|--skills]   # (re)index agent/skill catalog
 //!   ultron-memory eval [--project X] [--golden [<path>]] # recall@8; --golden <path>=external oracle (cat19)
 //!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
-//!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
-//!   ultron-memory reconcile --fix [--dry-run]   # repair just the drift (missing/orphans)
-//!   ultron-memory warmup                        # SessionStart -> warm E5 (page cache)
-//!   ultron-memory serve                         # persistent daemon: E5 resident, sub-second orchestrate
+//!   ultron-memory serve                         # persistent daemon (orchestrate/recall/LLM judges)
 //!   ultron-memory serve-ping                    # is a live daemon reachable? (read-only)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!   ultron-memory capture [--session <id>]      # Stop -> extract facts (stdin transcript)
@@ -33,7 +28,7 @@
 //!   ultron-memory dedupe [--dry-run] [--reason R]      # deprecar copias exactas de ACTIVE (sobrevive 1 por grupo)
 //!   ultron-memory deprecations apply [--dry-run]  # cierra deadlines vencidos de deprecation_entries (archiva o marca deleted)
 //!
-//! Build: cargo build --release --bin ultron-memory --features qdrant
+//! Build: cargo build --release --bin ultron-memory
 
 mod capture_cli;
 mod cli_args;
@@ -78,20 +73,11 @@ fn main() {
     }
 }
 
-/// Subcomandos batch (evals/reindex/backfills): minutos de CPU multi-core que,
+/// Subcomandos batch (evals/backfills): minutos de CPU multi-core que,
 /// a prioridad normal, multiplican x3-20 la latencia del hot path del hook y
 /// revientan su DAEMON_TIMEOUT_MS. JAMAS incluir serve ni los subcomandos del
-/// hook (orchestrate/recall/resume/warmup/capture).
-const BATCH_CMDS: &[&str] = &[
-    "eval",
-    "eval-full",
-    "backfill-projects",
-    "reindex",
-    "reindex-skills-lazy",
-    "catalog",
-    "sweep",
-    "hubs",
-];
+/// hook (orchestrate/recall/resume/capture).
+const BATCH_CMDS: &[&str] = &["eval", "eval-full", "backfill-projects", "sweep", "hubs"];
 
 /// Baja la prioridad del PROPIO proceso a BELOW_NORMAL (best-effort, solo
 /// Windows). No-op si la llamada falla: la prioridad nunca bloquea el batch.
@@ -111,7 +97,7 @@ fn lower_own_priority() {
 fn lower_own_priority() {}
 
 /// Línea de uso cuando falta el subcomando.
-const USAGE: &str = "usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|reindex-skills-lazy|skill-query <prompt> [--top N]|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|reconcile [--fix [--dry-run]]|fts-rebuild|secret-backfill [--dry-run]|pii-backfill [--dry-run]|scrub-secrets [--dry-run]|warmup|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]";
+const USAGE: &str = "usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|skill-judge <prompt>|eval [--golden [<path>]]|eval-full|fts-rebuild|secret-backfill [--dry-run]|pii-backfill [--dry-run]|scrub-secrets [--dry-run]|serve|serve-ping|doctor|candidate|supersede --old <id>|capture [--session <id>]|provenance --id <id|prefix>|forget --id <id|prefix> [--dry-run] [--reason R]|deprecate --type <T> [--dry-run] [--reason R]|stale [--older-than-days N] [--dry-run] [--reason R]|gc [--days 90] [--dry-run]|dedupe [--dry-run]|deprecations apply [--dry-run]|inbox <list|approve-clean|approve-all|auto-approve <on|off>>|version> [--project X] [args]";
 
 fn run() -> Result<serde_json::Value, String> {
     let args: Vec<String> = std::env::args().collect();
@@ -148,18 +134,14 @@ fn dispatch(
         "curate" => index_cli::curate(args),
         "reassign-project" => index_cli::reassign_project(args),
         "hubs" => recall_cli::hubs(args),
-        "reindex" => index_cli::reindex(),
-        "catalog" => index_cli::catalog(args),
         "eval" => recall_cli::eval(args, project),
         "eval-full" => recall_cli::eval_full(project),
-        "reconcile" => index_cli::reconcile(args),
         "candidate" => capture_cli::candidate(),
         "supersede" => capture_cli::supersede(args),
         // (subcomando `edge` retirado 2026-07-02 — codegraph interno erradicado,
         //  mand.12: 0 lectores. El codegraph real es el indexador externo `.codegraph/`.)
         "capture" => capture_cli::capture(args, project),
         "provenance" => capture_cli::provenance(args),
-        "warmup" => capture_cli::warmup(),
         "doctor" => capture_cli::doctor(),
         // Mantenimiento (forget, archive, deprecate, stale, gc, sweep, dedupe,
         // fts-rebuild, secret-backfill, scrub-secrets, deprecations): ver `maintenance_cli.rs`.
@@ -170,13 +152,10 @@ fn dispatch(
         // Informe READ-ONLY de víctimas de higiene en los golden sets (patrón
         // b1ea0e5): expect_ids no-ACTIVE con su gemelo activo por content_hash.
         "golden-remap" => Ok(ul::memory::evals::golden_remap_report()),
-        "reindex-skills-lazy" => index_cli::reindex_skills_lazy(),
-        "skill-query" => index_cli::skill_query(args),
         "skill-judge" => index_cli::skill_judge(args),
-        // Persistent orchestrator daemon: keeps E5 resident so UserPromptSubmit
-        // orchestration drops from ~3.5s to sub-second. Blocks forever serving
+        // Persistent orchestrator daemon (ver serve.rs). Blocks forever serving
         // requests, OR returns `already_running` when a live daemon owns the
-        // lockfile. Spawned DETACHED by the SessionStart memory-warmup hook.
+        // lockfile. Spawned DETACHED by a hook.
         "serve" => ul::serve::run_daemon(),
         // Report whether a live daemon is reachable (lockfile + ping). Read-only.
         "serve-ping" => Ok(ul::serve::ping_status()),

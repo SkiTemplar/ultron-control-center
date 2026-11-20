@@ -1,24 +1,20 @@
 //! Post-install integration — FRENTE 7 (UI/funcionamiento).
 //!
-//! Closes the "ANALIZADOR DE REPOS AUSENTE" gap: when a repo (or a single
-//! skill/agent file) is installed, the new payload must be integrated
-//! AUTOMATICALLY into:
-//!   (a) the dispatcher registry — by running `cockpit/skill-lazy/sync-registry.js`,
-//!       which regenerates `skills-registry.json`. LÍMITE (mand. 13): ese
-//!       registro solo lo lee `routing-dispatcher.v2.js`, desconectado desde
-//!       el 2026-09-29, así que regenerarlo NO hace enrutables las skills en
-//!       las sesiones;
-//!   (b) the governed memory — by proposing a `MemoryCandidate` recording
-//!       "repo X con skills/agentes Y", landing it in the inbox for human
-//!       approval (never auto-promoted; redaction + dedupe run in
-//!       `MemoryService::create_candidate`). The candidate states facts only:
-//!       it does not claim any routing integration.
+//! Closes the "ANALIZADOR DE REPOS AUSENTE" gap: when a local repo is analyzed,
+//! the result is recorded in the governed memory by proposing a
+//! `MemoryCandidate` ("repo X con skills/agentes Y") that lands in the inbox
+//! (redaction + dedupe run in `MemoryService::create_candidate`). The candidate
+//! states facts only: it does not claim any routing integration.
 //!
-//! Everything here is BEST-EFFORT and NON-FATAL: the install itself has already
-//! succeeded by the time this runs, so a missing `node`, a dispatcher parse
-//! error, or a closed brain.db must NOT turn a successful install into a failed
-//! one. Failures are collected into `PostInstallReport.warnings` and surfaced to
-//! the UI without erroring the parent command.
+//! Hasta el 2026-11-14 había un paso previo que ejecutaba
+//! `cockpit/skill-lazy/sync-registry.js` para regenerar `skills-registry.json`;
+//! se retiró junto con el dispatcher JS, el único lector de ese registro.
+//!
+//! Everything here is BEST-EFFORT and NON-FATAL: the scan itself has already
+//! succeeded by the time this runs, so a closed brain.db must NOT turn a
+//! successful analysis into a failed one. Failures are collected into
+//! `PostInstallReport.warnings` and surfaced to the UI without erroring the
+//! parent command.
 
 use std::path::{Path, PathBuf};
 
@@ -26,101 +22,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::memory::model::{MemoryCandidate, MemoryType, Scope};
 use crate::memory::service::MemoryService;
-use crate::ultron_root;
 
 /// Outcome of the post-install integration step. Serialized to the frontend so
-/// the Library UI can show "catalog synced + 1 memory proposed" feedback.
+/// the Library UI can show the proposed memory candidate.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PostInstallReport {
-    /// True when `sync-registry.js` ran and exited 0.
-    pub registry_synced: bool,
-    /// Stdout line from sync-registry (its `{ok,total,added,updated,detected}` JSON)
-    /// when available — handy for the UI log.
-    pub registry_summary: Option<String>,
-    /// How many new skills/agents were discovered from the filesystem scan and
-    /// added to the registry (assets that existed on disk but were not registered).
-    /// 0 when sync-registry did not run or reported no new detections.
-    pub newly_detected: u32,
     /// Candidate id created in the memory inbox (awaiting approval), if any.
     pub memory_candidate_id: Option<String>,
-    /// Non-fatal notes (a missing `node`, dispatcher error, DB closed, …).
+    /// Non-fatal notes (DB closed, …).
     pub warnings: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
-// (a) Routing catalog sync — run sync-registry.js
-// ---------------------------------------------------------------------------
-
-/// Absolute path to the bundled `sync-registry.js`.
-fn sync_registry_script() -> Result<PathBuf, String> {
-    let p = ultron_root()?
-        .join("cockpit")
-        .join("skill-lazy")
-        .join("sync-registry.js");
-    if !p.exists() {
-        return Err(format!("sync-registry.js not found at {}", p.display()));
-    }
-    Ok(p)
-}
-
-/// Result of running `node sync-registry.js`.
-struct SyncRegistryResult {
-    /// The raw stdout line (JSON summary) for the UI log.
-    summary: String,
-    /// Number of new assets discovered from the filesystem scan.
-    newly_detected: u32,
-}
-
-/// Spawn `node sync-registry.js`. Windows-only `CREATE_NO_WINDOW` (0x0800_0000)
-/// keeps the subprocess from flashing a console window (same discipline as the
-/// `gh` spawns in `library.rs`). Returns the trimmed stdout summary on success.
-fn run_sync_registry() -> Result<SyncRegistryResult, String> {
-    let script = sync_registry_script()?;
-    // Resolve `node` explicitly so a clearer error surfaces when Node is absent
-    // (instead of an opaque "program not found" from Command::spawn).
-    let node = which::which("node").map_err(|_| "node not found on PATH".to_string())?;
-
-    let mut cmd = std::process::Command::new(node);
-    cmd.arg(&script);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn node sync-registry: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "sync-registry exited {}: {}",
-            output.status,
-            stderr.trim()
-        ));
-    }
-
-    let raw = String::from_utf8_lossy(&output.stdout);
-    let summary = raw.trim().to_string();
-
-    // Parse `detected` from the JSON summary line, e.g.
-    // {"ok":true,"total":179,"added":3,"updated":0,"detected":25,"path":"..."}
-    let newly_detected = summary
-        .as_str()
-        .parse::<serde_json::Value>()
-        .ok()
-        .and_then(|v| v.get("detected").and_then(|d| d.as_u64()))
-        .map(|n| n as u32)
-        .unwrap_or(0);
-
-    Ok(SyncRegistryResult {
-        summary,
-        newly_detected,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// (b) Memory capture — propose a governed candidate
+// Memory capture — propose a governed candidate
 // ---------------------------------------------------------------------------
 
 /// Texto del candidato de memoria. Solo hechos comprobables: el repo y los
@@ -200,8 +114,8 @@ fn capture_install_memory(
 // GitHub se retiró el 2026-10-17)
 // ---------------------------------------------------------------------------
 
-/// Run BOTH integration steps, collecting non-fatal failures into the report.
-/// Callers invoke this AFTER a successful install and ignore the result's error
+/// Run the integration step, collecting non-fatal failures into the report.
+/// Callers invoke this AFTER a successful scan and ignore the result's error
 /// surface (there is none — this never returns `Err`).
 #[must_use]
 pub fn post_install_integrate(
@@ -210,17 +124,6 @@ pub fn post_install_integrate(
     project_id: Option<&str>,
 ) -> PostInstallReport {
     let mut report = PostInstallReport::default();
-
-    match run_sync_registry() {
-        Ok(result) => {
-            report.registry_synced = true;
-            report.newly_detected = result.newly_detected;
-            if !result.summary.is_empty() {
-                report.registry_summary = Some(result.summary);
-            }
-        }
-        Err(e) => report.warnings.push(format!("sync-registry skipped: {e}")),
-    }
 
     match capture_install_memory(repo_label, asset_names, project_id) {
         Ok(id) => report.memory_candidate_id = Some(id),
@@ -281,27 +184,25 @@ fn scan_repo_assets(repo_dir: &Path) -> Vec<String> {
 }
 
 /// Result of `analyze_local_repo`: the assets it found plus the post-install
-/// integration report (catalog sync + memory candidate).
+/// integration report (memory candidate).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzeRepoResult {
     /// Absolute path that was scanned.
     pub repo_path: String,
     /// Skill/agent slugs discovered.
     pub assets: Vec<String>,
-    /// Catalog-sync + memory-capture outcome.
+    /// Memory-capture outcome.
     pub integration: PostInstallReport,
 }
 
-/// Scan a LOCAL repo for skills/agents and run the SAME post-install integration
-/// (sync-registry + memory candidate). Use this for repos
-/// already on disk (cloned, vendored, or symlinked into `~/.claude`).
+/// Scan a LOCAL repo for skills/agents and run the post-install integration
+/// (memory candidate). Use this for repos already on disk (cloned, vendored,
+/// or symlinked into `~/.claude`).
 ///
-/// The scan is read-only — it does NOT copy any files. It assumes the assets are
-/// already discoverable by the dispatcher (which is what `sync-registry` reads);
-/// for repos NOT yet placed under `~/.claude`, install them first.
+/// The scan is read-only — it does NOT copy any files.
 ///
-/// Recorre el repo y lanza `node sync-registry.js`: corre en el pool
-/// bloqueante, nunca en el hilo principal.
+/// Recorre el repo y escribe en brain.db: corre en el pool bloqueante, nunca
+/// en el hilo principal.
 #[tauri::command]
 pub async fn analyze_local_repo(path: String) -> Result<AnalyzeRepoResult, String> {
     tauri::async_runtime::spawn_blocking(move || analyze_local_repo_blocking(&path))
@@ -401,10 +302,21 @@ mod tests {
     }
 
     #[test]
-    fn report_default_is_unsynced_no_warnings() {
+    fn report_default_has_no_candidate_nor_warnings() {
         let r = PostInstallReport::default();
-        assert!(!r.registry_synced);
         assert!(r.memory_candidate_id.is_none());
         assert!(r.warnings.is_empty());
+    }
+
+    /// Caso negativo: el paso de sync-registry se retiró con el dispatcher y
+    /// el informe que lee la UI ya no puede anunciar un registro regenerado.
+    #[test]
+    fn report_json_no_longer_carries_registry_fields() {
+        let v = serde_json::to_value(PostInstallReport::default()).expect("json");
+        let obj = v.as_object().expect("object");
+        for retired in ["registry_synced", "registry_summary", "newly_detected"] {
+            assert!(!obj.contains_key(retired), "{retired} sigue en el informe");
+        }
+        assert!(obj.contains_key("memory_candidate_id") && obj.contains_key("warnings"));
     }
 }

@@ -6,7 +6,7 @@
 #   1. Destination binary already present          -> skip (unless --force)
 #   2. Download prebuilt asset from LATEST release -> verify SHA-256, deploy
 #      (asset: ultron-memory-linux-x64)
-#   3. cargo build --release --bin ultron-memory --features qdrant
+#   3. cargo build --release --bin ultron-memory
 #
 # Exit codes: 0 = deployed or already present, 1 = all paths failed.
 # Without the sidecar there is no memory of any kind: the hooks stay fail-safe
@@ -97,7 +97,7 @@ if [ ! -f "$CRATE_DIR/Cargo.toml" ]; then
     exit 1
 fi
 say "building ultron-memory from source (first build downloads the ONNX runtime; can take several minutes)..."
-if ! (cd "$CRATE_DIR" && cargo build --release --bin ultron-memory --features qdrant); then
+if ! (cd "$CRATE_DIR" && cargo build --release --bin ultron-memory); then
     warn "build failed"
     exit 1
 fi

@@ -33,53 +33,6 @@ export interface ProjectGroup {
   subagents: SessionInfo[];
 }
 
-// ---------------------------------------------------------------------------
-// Orquestación por sesión.
-//
-// Espejo parcial de OrchestrateLogEntry (backend: commands/sessions_sub/
-// live_session.rs). El hook UserPromptSubmit escribe cada turno en
-// ~/.claude/logs/orchestrate.jsonl con el session_id de la sesión PRINCIPAL,
-// que es el mismo UUID que nombra el transcript → se correlaciona 1:1 con
-// SessionInfo.session_id. Los subagentes (is_subagent) no tienen turno propio
-// en este log, así que simplemente no traen orquestación.
-// ---------------------------------------------------------------------------
-
-export interface OrchAgent {
-  name: string;
-  score: number;
-}
-
-export interface OrchSkill {
-  name: string;
-  kind: string;
-  score: number;
-}
-
-export interface OrchMemory {
-  scope: string;
-  summary: string;
-}
-
-/**
- * Último turno orquestado de una sesión (route → workflow → agentes → skills → memoria).
- * Espejo de OrchestrateLogEntry (backend: commands/sessions_sub/live_session.rs).
- * `project`/`warnings` los usa el panel GLOBAL (LiveSessionMonitor); las tarjetas
- * por sesión los ignoran.
- */
-export interface SessionOrchestration {
-  ts: string | null;
-  session_id: string | null;
-  project: string | null;
-  prompt: string | null;
-  route: string | null;
-  workflow: { id: string | null; label: string | null } | null;
-  agents: OrchAgent[];
-  skills: OrchSkill[];
-  memories: OrchMemory[];
-  cross_project: boolean;
-  warnings: string[];
-}
-
 /**
  * Subagente COMPLETADO, cosechado por el hook SubagentStop
  * (subagent-harvest.jsonl). El hook escribe al TERMINAR, así que son subagentes
@@ -105,21 +58,13 @@ export interface RunningSubagent {
   started_at: string | null;
 }
 
-export type OrchestrateMode = "light" | "full";
-
 /**
- * Feed completo de live_session_feed. Un único fetch sirve a la vez:
- *   - orchestrations → correlación por session_id (tarjetas) + último turno global
- *   - subagents/running_subagents → panel global de orquestación
- * `routing` (log del dispatcher desconectado) se retiró el 2026-10-23.
+ * Feed completo de live_session_feed: subagentes terminados y en vuelo para el
+ * panel global LiveSessionMonitor. `routing` (log del dispatcher desconectado)
+ * se retiró el 2026-10-23, y los turnos y el modo de memory-orchestrate, el
+ * 2026-11-15, con el modo full del hook.
  */
 export interface LiveSessionFeed {
-  /** Solo hay turnos nuevos con `orchestrate_mode === "full"`. */
-  orchestrations: SessionOrchestration[];
-  /** Modo del hook memory-orchestrate: "light" (solo tono, por defecto) o "full". */
-  orchestrate_mode: OrchestrateMode;
-  /** `ULTRON_DENSE` del proceso de la app. */
-  dense_enabled: boolean;
   subagents: SubagentActivity[];
   running_subagents: RunningSubagent[];
   generated_at: string;

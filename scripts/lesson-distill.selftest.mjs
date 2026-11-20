@@ -58,6 +58,8 @@ function readJsonl(file) {
 function fire(payload, extraEnv = {}) {
   const env = {
     ...process.env,
+    // Procesa en línea: la cola de SessionEnd tiene su propio selftest.
+    ULTRON_DEFER_SESSION_END: "0",
     LESSON_DISTILL_LOG: LOG,
     LESSON_DISTILL_REQUEST_OUT: REQ,
     LESSON_DISTILL_FAKE_RESPONSE: FAKE,

@@ -2,7 +2,7 @@
 //
 // Extraido de engine.rs (2026-07-03, cat7.3: fichero >800 lineas). Contiene el
 // filtro puro de gobernanza (status/proyecto/sensibilidad/presupuesto/diversidad
-// /trust-gate helpers) — unit-testeable sin Qdrant/E5. El pipeline hibrido
+// /trust-gate helpers) — unit-testeable sobre una conexión en memoria. El pipeline
 // (build_trace/recall_pack) sigue en engine.rs.
 
 use crate::memory::model::now_millis;
@@ -18,7 +18,7 @@ use super::types_model::{
 /// apply the governance filters — result limit, status=active, project scope
 /// (global applies everywhere), sensitivity gate (no Secret), token budget. Pure
 /// over the given connection so the security invariants are UNIT-TESTABLE without
-/// Qdrant/E5. Returns (injected, discarded, total_tokens).
+/// a real brain.db. Returns (injected, discarded, total_tokens).
 ///
 /// CROSS-PROJECT: when `cross_project` is true the PROJECT-equality gate is
 /// relaxed so scope=project items from ANY project are eligible (the user is
@@ -273,18 +273,15 @@ pub(crate) fn assemble_pack(
             discarded.push(discard("below result limit"));
             continue;
         }
-        // Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A hit with NO
-        // dense (semantic) backing whose sparse (BM25) rank is in the TAIL shares
-        // only a stray term with the query — E5 did not rank it relevant at all.
-        // The widened BM25 fanout exists to push in-project items past the
-        // governance gates, NOT to inject the lexical tail; this floor drops it so
-        // the pack stays few-and-good (kills the "Mundial 2026 / menú de 5
-        // decisiones" class). dense-backed hits (any rank) and sparse-TOP hits
-        // (rank < cutoff) always pass. Cheap: runs before get_item.
-        if fh.dense_rank.is_none() && fh.sparse_rank.is_some_and(|r| r >= SPARSE_TAIL_CUTOFF) {
-            discarded.push(discard(
-                "below relevance floor (BM25 tail, no dense backing)",
-            ));
+        // Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A hit whose
+        // sparse (BM25) rank is in the TAIL shares only a stray term with the
+        // query. The widened BM25 fanout exists to push in-project items past
+        // the governance gates, NOT to inject the lexical tail; this floor drops
+        // it so the pack stays few-and-good (kills the "Mundial 2026 / menú de 5
+        // decisiones" class). sparse-TOP hits (rank < cutoff) pass. Cheap: runs
+        // before get_item.
+        if fh.sparse_rank.is_some_and(|r| r >= SPARSE_TAIL_CUTOFF) {
+            discarded.push(discard("below relevance floor (BM25 tail)"));
             continue;
         }
         let item = match store::get_item(conn, &fh.canonical_id) {
@@ -341,7 +338,7 @@ pub(crate) fn assemble_pack(
             // Sin esto, el 82% del corpus (project_id NULL) era INVISIBLE desde
             // cualquier sesion de proyecto -> "la memoria no funciona fuera de
             // ULTRON" (en Oryntics: 76 memorias reales devolvian 0). La relevancia
-            // (RRF + denso + re-ranker) da la precision; el gate solo excluye
+            // (BM25 de FTS5) da la precision; el gate solo excluye
             // memorias de OTRO proyecto IDENTIFICADO.
             if !cross_project
                 && item.scope != Scope::Global
@@ -444,11 +441,9 @@ pub(crate) fn assemble_pack(
             }
         });
         total_tokens += entry_tokens;
-        let reason = match (fh.dense_rank, fh.sparse_rank) {
-            (Some(d), Some(s)) => format!("dense#{} + sparse#{}", d + 1, s + 1),
-            (Some(d), None) => format!("dense#{}", d + 1),
-            (None, Some(s)) => format!("sparse#{}", s + 1),
-            (None, None) => "unranked".to_string(),
+        let reason = match fh.sparse_rank {
+            Some(s) => format!("sparse#{}", s + 1),
+            None => "unranked".to_string(),
         };
         injected.push(RecallEntry {
             canonical_id: item.id.clone(),
@@ -458,9 +453,7 @@ pub(crate) fn assemble_pack(
             project_id: item.project_id.clone(),
             kind: item.kind.as_str().to_string(),
             score: fh.rrf_score,
-            dense_rank: fh.dense_rank,
             sparse_rank: fh.sparse_rank,
-            dense_score: fh.dense_score,
             reason,
             token_estimate: entry_tokens,
         });
@@ -535,7 +528,7 @@ mod trust_gate_tests {
         assert!(!is_opaque_id("fts5"));
         assert!(!is_opaque_id("bm25"));
         assert!(!is_opaque_id("sha256"));
-        assert!(!is_opaque_id("qdrant"), "sin dígitos");
+        assert!(!is_opaque_id("sqlite"), "sin dígitos");
         assert!(!is_opaque_id("e5large"), "7 chars: por debajo del umbral");
 
         let terms = informative_query_terms("mira la tarjeta b7d23ga2p del kanban");
@@ -574,7 +567,7 @@ mod trust_gate_tests {
     fn diacritic_variants_bridge_simbolos_both_directions() {
         assert_eq!(ascii_fold("símbolos"), "simbolos");
         assert_eq!(ascii_fold("español"), "espanol");
-        assert_eq!(ascii_fold("qdrant"), "qdrant");
+        assert_eq!(ascii_fold("sqlite"), "sqlite");
 
         // Query sin tilde -> variantes incluyen la forma acentuada del corpus.
         let v = diacritic_probe_variants("simbolos");

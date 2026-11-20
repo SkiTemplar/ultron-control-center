@@ -22,14 +22,6 @@
     "docs/research/corpus/"
   ],
   "fileExceptions": {
-    "cockpit/skill-lazy/routing-dispatcher.v2.js": {
-      "max": 1440,
-      "reason": "Dispatcher desconectado desde 2026-09-29: solo lo ejecutan arneses y CI."
-    },
-    "cockpit/skill-lazy/routing-dispatcher.v3.js": {
-      "max": 931,
-      "reason": "Dispatcher desconectado desde 2026-09-29: solo lo ejecutan arneses y CI."
-    },
     "control-center/src/sesiones/types.ts": {
       "max": 852,
       "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
@@ -65,10 +57,6 @@
     "install.sh": {
       "max": 1427,
       "reason": "Instalador que debe funcionar como un solo fichero descargado."
-    },
-    "scripts/cockpit/brain_index.py": {
-      "max": 1281,
-      "reason": "Deuda anterior al guardia (auditoria 2026-11-01); pendiente de partir."
     },
     "scripts/cockpit/doctor_checks.py": {
       "max": 1380,

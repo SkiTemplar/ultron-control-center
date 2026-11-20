@@ -2,18 +2,13 @@
 //! vencidas de `deprecation_entries` (kanban: "ultron-memory doctor: 478
 //! deprecation_deadlines vencidos"; decisión 2026-09-14: archivar, no purgar).
 //!
-//! Reutiliza `archive_one` (el mismo camino Qdrant-antes-que-SQL que
-//! `archive_by_type`, F1.7) por-id en vez de duplicar la lógica de mover
-//! filas/FTS5/Qdrant. Nunca borra un `MemoryItem`; `dry_run` no escribe nada
-//! (ni memoria ni ledger).
+//! Reutiliza `archive_one` (el mismo camino que `archive_by_type`, F1.7)
+//! por-id en vez de duplicar la lógica de mover filas y FTS5. Nunca borra un
+//! `MemoryItem`; `dry_run` no escribe nada (ni memoria ni ledger).
 //!
-//! Alcance de los tests (mandamiento 13): la rama `ArchiveNow` decide
-//! correctamente (cubierto por `decide_outcome`, puro), pero el archivado real
-//! pasa por `qdrant_index::remove_item` — una llamada HTTP real a Qdrant, sin
-//! seam de test — igual que `archive_by_type`/`gc`, que tampoco la cubren.
-//! Las demás ramas (`AlreadyArchived`, `MissingDeleted`, `NotDeprecated`,
-//! `dry_run`, idempotencia) no tocan Qdrant y están cubiertas end-to-end
-//! contra una BD en memoria.
+//! Alcance de los tests: el archivado es solo SQL, así que las cinco ramas
+//! (`ArchiveNow`, `AlreadyArchived`, `MissingDeleted`, `NotDeprecated`,
+//! `dry_run`) están cubiertas end-to-end contra una BD en memoria.
 
 use super::super::model::{now_millis, Actor, Status};
 use super::super::sqlite_store as store;
@@ -50,7 +45,7 @@ fn decide_outcome(item_status: Option<Status>, already_archived: bool) -> Deprec
 impl MemoryService {
     /// Recorre las entradas de `deprecation_entries` cuyo `deadline` ya pasó y
     /// que no están cerradas, y las cierra según [`decide_outcome`]. Un fallo
-    /// por item (Qdrant/SQL) se recoge en `failed` y no aborta el lote.
+    /// por item (SQL) se recoge en `failed` y no aborta el lote.
     pub fn apply_deprecation_deadlines(
         dry_run: bool,
         actor: Actor,
@@ -310,6 +305,35 @@ mod tests {
         let state: String = conn
             .query_row(
                 "SELECT state FROM deprecation_entries WHERE id = 'dep:arch-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "archived");
+    }
+
+    #[test]
+    fn overdue_entry_with_deprecated_item_archives_it_and_closes_the_ledger() {
+        let conn = mem_conn();
+        let item = deprecated_item("item-now-1");
+        insert_item(&conn, &item).unwrap();
+        insert_deprecation_entry(&conn, &overdue_entry("now-1", "item-now-1")).unwrap();
+
+        let res = MemoryService::apply_deprecation_deadlines_with_conn(
+            &conn,
+            NOW_MS,
+            false,
+            Actor::System,
+        )
+        .unwrap();
+
+        assert_eq!(res.archived, 1);
+        assert!(res.failed.is_empty(), "{:?}", res.failed);
+        assert!(get_item(&conn, "item-now-1").unwrap().is_none());
+        assert!(store::archive_contains(&conn, "item-now-1").unwrap());
+        let state: String = conn
+            .query_row(
+                "SELECT state FROM deprecation_entries WHERE id = 'dep:now-1'",
                 [],
                 |r| r.get(0),
             )

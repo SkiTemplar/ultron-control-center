@@ -18,6 +18,14 @@
  *   force-push       (Bash)   ASK   push forzado (rescribe historia publicada):
  *                                   --force*, --mirror, -f y refspec `+rama`.
  *
+ * DOBLE INTENTO (2026-11-16): con `permission_mode: 'bypassPermissions'` en la
+ * entrada, un ASK no pide confirmacion. El primer intento sale en DENY con la
+ * regla, el motivo y la orden de repetir la misma llamada en menos de 120 s; la
+ * repeticion identica (misma sesion, tool e input) pasa sin decision y consume
+ * la marca (lib/double-attempt.js). Los DENY no cambian y fuera de bypass sigue
+ * el ASK. Si el estado del doble intento falla, ASK como siempre. El log anota
+ * `decision` = `ask`, `double-deny` o `double-pass`.
+ *
  * Normalizacion (hooks-3, 2026-10-23; auditoria 2026-11-01): las reglas se
  * aplican a la linea y a cada comando que lanza a traves de otra shell (`bash -c`,
  * `pwsh -Command`, `-EncodedCommand`, `cmd /c`, `echo … | bash`, `bash <<EOF`,
@@ -533,7 +541,12 @@ function clasificaShell(cmd, dialectos) {
   return null;
 }
 
-function handle(raw) {
+/**
+ * @param {string} raw entrada JSON del hook
+ * @param {{now?: number, doubleAttemptFile?: string}} [opts] reloj y estado del
+ *   doble intento inyectables (selftest); en produccion, los de verdad.
+ */
+function handle(raw, opts = {}) {
   let data;
   try {
     data = JSON.parse(String(raw || '').replace(/^﻿/, ''));
@@ -557,9 +570,11 @@ function handle(raw) {
   if (!veredicto) return null;
 
   // Solo el nombre de la regla: sin esto no se podia saber si habia disparado alguna vez.
-  try {
-    require('./lib/hook-obs.js').annotate({ decision: veredicto.decision, rule: veredicto.regla, tool: String(data.tool_name || 'unknown') });
-  } catch (_) { /* la observabilidad jamas rompe un hook */ }
+  annotate({ decision: veredicto.decision, rule: veredicto.regla, tool: String(data.tool_name || 'unknown') });
+  if (veredicto.decision === 'ask') {
+    const doble = dobleIntento(veredicto, data, opts);
+    if (doble.handled) return doble.out;
+  }
   const etiqueta = veredicto.decision === 'deny' ? 'BLOQUEADO' : 'CONFIRMA';
   return JSON.stringify({
     systemMessage: `ULTRON guardrails [${veredicto.regla}]: ${veredicto.reason}`,
@@ -569,6 +584,33 @@ function handle(raw) {
       permissionDecisionReason: `${etiqueta} (guardrails/${veredicto.regla}): ${veredicto.reason}`,
     },
   });
+}
+
+function annotate(fields) {
+  try {
+    require('./lib/hook-obs.js').annotate(fields);
+  } catch (_) { /* la observabilidad jamas rompe un hook */ }
+}
+
+/**
+ * Doble intento de un ASK en bypassPermissions (handled=false fuera de bypass).
+ * Si la libreria faltara o lanzara, ASK como siempre: nunca allow.
+ */
+function dobleIntento(veredicto, data, opts) {
+  try {
+    return require('./lib/double-attempt.js').handleAsk({
+      hook: 'guardrails-pre',
+      etiqueta: `guardrails/${veredicto.regla}`,
+      reason: veredicto.reason,
+      data,
+      opts,
+      systemPrefix: `ULTRON guardrails [${veredicto.regla}]`,
+      annotate,
+    });
+  } catch (e) {
+    process.stderr.write(`guardrails-pre: doble intento no disponible, se pide confirmacion: ${e}\n`);
+    return { handled: false };
+  }
 }
 
 module.exports = {

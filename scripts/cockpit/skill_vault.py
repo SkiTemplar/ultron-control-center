@@ -5,8 +5,7 @@ ULTRON v15.0b — Skill Vault
 Mueve skills poco usadas fuera de ~/.claude/skills/ (y de los mirrors
 ~/.agents/skills/ y ~/.codex/skills/) a ~/.ultron/skill-vault/, para que su
 metadata NO se cargue en el contexto de cada sesion. Quedan recuperables
-on-demand via `skill_vault.py search` / `restore`, e indexables en Qdrant
-(coleccion `ultron_skills`) cuando el pipeline semantico este vivo.
+on-demand via `skill_vault.py search` / `restore`.
 
 Comandos:
     migrate --keep-file <path> [--dry-run]   Mover a vault todo lo que NO este en keep
@@ -414,63 +413,10 @@ def cmd_registry(args) -> int:
     return 0
 
 
-def _semantic_search(query: str, k: int):
-    """Qdrant (ultron_skills, state=vaulted) — devuelve [(score, name, desc)] o None si no disponible."""
-    try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        import embed_skills  # type: ignore
-        rows = embed_skills.query_skills(query, top_n=k, state="vaulted")
-        return [(r["score"], r["name"], r["description"]) for r in rows]
-    except Exception:
-        return None
-
-
-def cmd_merge_candidates(args) -> int:
-    """Pares de skills (state filtrable) con coseno > umbral en Qdrant — candidatas a fusionar."""
-    try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        import embed_skills  # type: ignore
-        client = embed_skills._get_qdrant()
-        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-        qf = Filter(must=[FieldCondition(key="state", match=MatchValue(value=args.state))]) if args.state != "all" else None
-        pts, _ = client.scroll(collection_name=embed_skills.COLLECTION, scroll_filter=qf,
-                               with_vectors=True, with_payload=True, limit=2000)
-    except Exception as exc:
-        print(f"  Qdrant no disponible o sin colección: {exc!r}"); return 1
-    items = [(p.payload.get("name", "?"), p.vector) for p in pts if p.vector]
-    n = len(items)
-    if n < 2:
-        print(f"  solo {n} skill(s) con vector — nada que comparar"); return 0
-    thr = args.threshold
-    pairs = []
-    for i in range(n):
-        ni, vi = items[i]
-        for j in range(i + 1, n):
-            nj, vj = items[j]
-            dot = sum(a * b for a, b in zip(vi, vj))  # vectores normalizados → cos = dot
-            if dot >= thr:
-                pairs.append((round(dot, 4), ni, nj))
-    pairs.sort(reverse=True)
-    if not pairs:
-        print(f"  sin pares con coseno ≥ {thr} (state={args.state}, n={n})"); return 0
-    print(f"  Candidatas a merge (coseno ≥ {thr}, state={args.state}, {n} skills, {len(pairs)} pares):")
-    for sc, a, b in pairs[: args.k]:
-        print(f"  [{sc:.3f}] {a}  ⇄  {b}")
-    print("\n  (revisar manualmente — fusionar = quedarse una, ampliar su description, vaultear/borrar la otra)")
-    return 0
-
-
 def cmd_search(args) -> int:
     idx = _load_index()
-    # 1) intento semántico (Qdrant)
-    sem = None if getattr(args, "no_semantic", False) else _semantic_search(args.query, args.k)
-    if sem:
-        print(f"  vault matches (semántico) para '{args.query}':")
-        for score, name, desc in sem:
-            print(f"  [{score:.3f}] {name:<32} {desc[:70]}")
-        print(f"\n  restaurar: ultron skills vault restore <name>")
-        return 0
-    # 2) fallback keyword sobre INDEX.json (Qdrant caído / sin modelo)
+    # Keyword sobre INDEX.json (la busqueda semantica en Qdrant se retiro el
+    # 2026-11-14).
     terms = [t.lower() for t in re.split(r"\s+", args.query.strip()) if t]
     scored = []
     for name, d in idx["skills"].items():
@@ -480,8 +426,8 @@ def cmd_search(args) -> int:
             scored.append((score, name, d))
     scored.sort(reverse=True)
     if not scored:
-        print(f"  sin resultados en el vault para: {args.query}  (Qdrant no disponible — fallback keyword)"); return 0
-    print(f"  vault matches (keyword · Qdrant offline) para '{args.query}':")
+        print(f"  sin resultados en el vault para: {args.query}  "); return 0
+    print(f"  vault matches (keyword) para '{args.query}':")
     for score, name, d in scored[: args.k]:
         print(f"  [{score:>3}] {name:<32} {d['description'][:70]}")
     print(f"\n  restaurar: ultron skills vault restore <name>")
@@ -517,8 +463,7 @@ def main() -> int:
     s = sub.add_parser("status"); s.set_defaults(func=cmd_status)
     st = sub.add_parser("stats"); st.set_defaults(func=cmd_stats)
     rg = sub.add_parser("registry"); rg.add_argument("--dry-run", action="store_true"); rg.set_defaults(func=cmd_registry)
-    mc = sub.add_parser("merge-candidates"); mc.add_argument("--state", choices=["active", "vaulted", "plugin", "all"], default="active"); mc.add_argument("--threshold", type=float, default=0.90); mc.add_argument("-k", type=int, default=25); mc.set_defaults(func=cmd_merge_candidates)
-    se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.add_argument("--no-semantic", action="store_true", help="solo keyword sobre INDEX.json"); se.set_defaults(func=cmd_search)
+    se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.set_defaults(func=cmd_search)
     r = sub.add_parser("restore"); r.add_argument("names", nargs="+"); r.set_defaults(func=cmd_restore)
     args = ap.parse_args()
     return args.func(args)

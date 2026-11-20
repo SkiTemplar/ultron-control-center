@@ -7,7 +7,7 @@ Provides:
 - Cockpit class (atomic JSON IO with backup, retention helpers)
 - IDE detection heuristic (with user-configurable name overrides)
 
-Used by: scan_projects.py · launch_project.py · ai_standup.py · retention.py · etc.
+Used by: launch_project.py and the other cockpit scripts.
 """
 from __future__ import annotations
 

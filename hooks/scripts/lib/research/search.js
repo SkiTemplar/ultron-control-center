@@ -5,8 +5,7 @@
  * OpenAlex (varias variantes de consulta, ver openalex.js::searchWorksMulti)
  * y Semantic Scholar en paralelo (Promise.allSettled: una fuente caida nunca
  * tumba la otra), normaliza, fusiona/deduplica y ordena por relevancia
- * (merge.js::rankAndFilter, con re-rank semantico E5 cuando el daemon de
- * memoria esta vivo). yearFrom/yearTo se pasan a OpenAlex como filtro de
+ * (merge.js::rankAndFilter: relevancia + lexico IDF + citas). yearFrom/yearTo se pasan a OpenAlex como filtro de
  * servidor; minCitations/type se aplican despues de fusionar.
  *
  * Reajustado 2026-09-11 (2a ronda de feedback en vivo): la primera correccion
@@ -27,7 +26,7 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h: suficiente para no repetir la mi
 /**
  * Busca en OpenAlex + Semantic Scholar y devuelve { results, warnings,
  * sourcesQueried, totalBeforeFilter }. warnings[] lista que fuente (o que
- * variante de OpenAlex, o el re-rank semantico) fallo y por que, sin abortar
+ * variante de OpenAlex) fallo y por que, sin abortar
  * la busqueda si al menos algo respondio.
  */
 async function search(query, { yearFrom, yearTo, type, minCitations, limit = 20 } = {}) {

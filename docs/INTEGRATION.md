@@ -9,8 +9,8 @@ Two versioned layers coexist inside it, plus the Node scripts that glue them:
 
 | Layer | Root | Version | Technology |
 |-------|------|---------|------------|
-| Python Cockpit | `scripts/cockpit/` | 15.7.0 | Python 3.12, uv |
-| Control Center | `control-center/` | 15.8.0 | Tauri 2, React 19, Rust |
+| Python Cockpit | `scripts/cockpit/` | 15.9.0 | Python 3.12, uv |
+| Control Center | `control-center/` | 15.9.0 | Tauri 2, React 19, Rust |
 | Hooks, mods and scripts | `hooks/`, `mods/`, `scripts/` | unversioned | Node.js |
 
 ### Why two version numbers?
@@ -26,8 +26,8 @@ Control Center is the **main product** — a Tauri 2 desktop application whose c
 is the ULTRON Sessions window (multi-engine chat), plus memory, delegation and the
 tabs around them. It was rewritten to v2.0 in May 2026 and followed
 its own semantic version (`2.x`) in `control-center/package.json` until it
-was unified to the `15.x` line on 2026-09-10 (currently 15.8.0, one step
-ahead of the cockpit's 15.7.0). The CI `version-drift` gate intentionally
+was unified to the `15.x` line on 2026-09-10 (15.9.0 since 2026-11-12, the
+same number as the cockpit). The CI `version-drift` gate intentionally
 lets these two numbers diverge (that guard checks internal consistency
 within each layer — `package.json`/`Cargo.toml`/`tauri.conf.json` for
 Control Center — not cross-layer synchronisation).
@@ -48,7 +48,7 @@ Control Center — not cross-layer synchronisation).
 │       ├── doctor_core.py       orchestration + CLI
 │       └── ...
 ├── control-center/
-│   ├── package.json             Control Center v15.8.0
+│   ├── package.json             Control Center v15.9.0
 │   ├── src/                     React 19 frontend
 │   └── src-tauri/               Rust/Tauri 2 backend
 ├── hooks/                       Claude Code lifecycle hooks
@@ -116,7 +116,6 @@ measures it).
 | `cargo-test` | `cargo test` (lib only), three parallel jobs: `sesiones::`, `memory::` + `mascot::` and the rest | windows-latest |
 | `typescript` | `tsc --noEmit` | windows-latest |
 | `vitest` | `vitest run --shard=N/3` (3 jobs in parallel) | windows-latest |
-| `routing-dispatcher` | dispatcher scripts load (syntax + require chain) | ubuntu-latest |
 | `hook-selftests` | hook and script selftests (hermetic; `--fake-home --jobs 4`), two parallel jobs: `delegate.selftest` and the rest | windows-latest |
 | `mods-tests` | `claude plugin test` for each mod + desktop MCP (`scripts/run-mod-tests.mjs`, pinned CLI) | windows-latest |
 | `python-tests` | `pytest tests/` | windows-latest |
@@ -146,7 +145,6 @@ their output.
 **Q: What happened to the Mem0 / ECC migration plan?**
 That plan (2026-05-22) was discarded. ULTRON's memory system remains the
 native Rust binary `ultron-memory.exe` backed by `brain.db` (SQLite +
-FTS5). Dense recall over a native Qdrant binary (path configurable via
-`ULTRON_QDRANT_EXE`; defaults to `~/.ultron/qdrant-native/`) is optional:
-it is on by default in the code and `ULTRON_DENSE=0` turns it off, leaving
-sparse FTS5 recall. Mem0 is not used.
+FTS5), and recall is sparse FTS5/BM25 only. Dense recall (Qdrant + E5 +
+re-ranker) was switched off on 2026-09-28 and removed from the code on
+2026-11-14. Mem0 is not used.

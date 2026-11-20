@@ -43,6 +43,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { takePayload } = require('./lib/deferred-hooks');
 const { appendJsonl } = require('./lib/jsonl-log');
 const { daemonRequest, projectIdFromCwd, spawnDetached, readDaemonLock } = require('./lib/ultron-memory-cli');
 const { gatherSources, perfilDeterminista } = require('./lib/project-sources');
@@ -208,9 +209,12 @@ async function relaunchAndRetry(payload) {
 async function main() {
   if (process.env.CLAUDE_NO_HOOKS === '1' || process.env.PROJECT_PROFILE_DISABLED === '1') return;
 
+  // En SessionEnd solo se encola: el barrido lo ejecuta fuera del Job de Sessions.
+  const raw = takePayload('project-profile', readStdin);
+  if (raw === null) return;
+
   let stdin = {};
   try {
-    const raw = readStdin();
     stdin = raw ? JSON.parse(raw) : {};
   } catch (_) {
     stdin = {};

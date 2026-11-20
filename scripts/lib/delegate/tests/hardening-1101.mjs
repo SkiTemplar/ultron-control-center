@@ -230,7 +230,7 @@ async function branchStateTests() {
     assert.equal(gc.code, 0, gc.out);
     assert.ok(branchExists(`delegate/${red}`), 'la rama roja sin revisar se conserva');
     assert.ok(existsSync(join(DELEG, red)), 'y su delegacion');
-    assert.match(gc.out, new RegExp(`con rama sin fusionar ni descartar: [^\\n]*${red}`));
+    assert.match(gc.out, new RegExp(`con rama o worktree sin fusionar ni descartar: [^\\n]*${red}`));
     assert.doesNotMatch(gc.out, new RegExp(`descartar: [^\\n]*${gone}`));
     assert.ok(!existsSync(join(DELEG, gone)), 'sin rama no hay nada que proteger');
     assert.equal(delegate(['clean', red]).code, 0);

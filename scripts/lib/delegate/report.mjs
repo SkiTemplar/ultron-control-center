@@ -17,13 +17,32 @@ function baseLine(run) {
   return `base: ${run.base} (${String(run.baseSha).slice(0, 10)})${left}`;
 }
 
+/** Cuantos ficheros dejo el motor sin recoger, en palabras. */
+const reviewCount = (r) => (r.filesChanged === null ? 'ficheros sin contar (git no responde)' : `${r.filesChanged} fichero(s) cambiado(s)`);
+
+function keptLabel(a) {
+  if (a.review) return ` · worktree ${a.wt} conservado SIN commit (excepcion tras el motor en la fase ${a.review.phase}; ${reviewCount(a.review)}; revisalo a mano)`;
+  if (a.kept) return ` · rama ${a.branch} conservada`;
+  return a.wt ? ` · worktree ${a.wt} conservado (config de git tocada; sin commit)` : ' · worktree borrado (sin cambios)';
+}
+
 function attemptLine(a) {
   const head = `intento ${a.attempt} · ${a.engine} (${a.model ?? '?'})`;
   if (a.outcome === 'skipped') return `${head} · saltado: ${a.skipReason} (${a.reason})`;
   const mins = Math.round(a.durationS / 60);
   const why = a.reason && a.outcome !== 'ok' ? ` [${a.reason}]` : '';
-  const branch = a.kept ? ` · rama ${a.branch} conservada` : a.wt ? ` · worktree ${a.wt} conservado (config de git tocada; sin commit)` : ' · worktree borrado (sin cambios)';
-  return `${head} · ${a.outcome}${why} · motor ${a.engineText} · ${mins} min${branch}`;
+  return `${head} · ${a.outcome}${why} · motor ${a.engineText} · ${mins} min${keptLabel(a)}`;
+}
+
+/** Intento con el trabajo del motor sin recoger: lo que hay y que hacer con el. */
+function reviewLines(run, a) {
+  const r = a.review;
+  const files = r.files.length ? `: ${listed(r.files)}` : '';
+  return [
+    `rama: ninguna (git fallo al recoger el trabajo del motor) · worktree: ${a.wt}`,
+    `cambios: ${reviewCount(r)} SIN commit en el worktree${files}`,
+    `AVISO: el worktree NO se ha borrado y ${r.filesChanged === 0 ? 'el relevo ha seguido (sin cambios que perder)' : 'el relevo se ha cortado para no repetir la tarea con otro motor'}. Revisalo a mano: git -C "${a.wt}" status; recoge lo que sirva y despues node scripts/delegate.mjs clean ${run.id}`,
+  ];
 }
 
 function checkLines(run, a) {
@@ -39,6 +58,7 @@ function checkLines(run, a) {
     return lines;
   }
   if (!run.check) return ['check: sin comando (--no-check)'];
+  if (a.review) return [`check: no se ejecuto (git fallo antes, en la fase ${a.review.phase})`];
   return ['check: no se ejecuto (el motor fallo o no cambio nada)'];
 }
 
@@ -56,15 +76,23 @@ function isolationLines(a) {
 function resultLine(a, code) {
   if (code === 0) return `resultado: OK con ${a.engine}`;
   if (code === 1) return `resultado: CHECK ROJO con ${a.engine}`;
+  if (a.review) return `resultado: el motor ${a.engine} termino, pero git fallo al recoger su trabajo (${a.reason}); queda en el worktree para revisarlo a mano (vuelve a Opus)`;
   return 'resultado: ningun motor completo la tarea (vuelve a Opus)';
+}
+
+function changeLines(run, a) {
+  if (a.review) return reviewLines(run, a);
+  return [
+    a.kept ? `rama: ${a.branch} · worktree: ${a.wt}` : `rama: ninguna (intento ${a.attempt} sin cambios)`,
+    a.stat ? `cambios:\n${a.stat}` : 'cambios: ninguno (el delegado no modifico nada)',
+  ];
 }
 
 function detailLines(run, a, code) {
   const reply = a.reply || '';
   const lines = [
     resultLine(a, code),
-    a.kept ? `rama: ${a.branch} · worktree: ${a.wt}` : `rama: ninguna (intento ${a.attempt} sin cambios)`,
-    a.stat ? `cambios:\n${a.stat}` : 'cambios: ninguno (el delegado no modifico nada)',
+    ...changeLines(run, a),
     ...checkLines(run, a),
     ...isolationLines(a),
     `respuesta del delegado:\n${reply.slice(0, REPLY_MAX_CHARS)}${reply.length > REPLY_MAX_CHARS ? ' […]' : ''}`,
@@ -74,13 +102,14 @@ function detailLines(run, a, code) {
 }
 
 function nextSteps(run, attempts, code) {
+  const review = attempts.filter((a) => a.review && a.review.filesChanged !== 0).map((a) => a.wt);
+  const pending = review.length ? `worktrees SIN commit para revisar a mano (clean los borra): ${review.join(', ')} · ` : '';
   if (code === 0) {
-    return `fusionar: node scripts/delegate.mjs merge ${run.id} · descartar: node scripts/delegate.mjs clean ${run.id}`;
+    return `${pending}fusionar: node scripts/delegate.mjs merge ${run.id} · descartar: node scripts/delegate.mjs clean ${run.id}`;
   }
-  const kept = attempts.filter((a) => a.kept).map((a) => a.branch);
-  return kept.length
-    ? `ramas conservadas para revisar: ${kept.join(', ')} · limpiar: node scripts/delegate.mjs clean ${run.id}`
-    : `limpiar: node scripts/delegate.mjs clean ${run.id}`;
+  const kept = attempts.filter((a) => a.kept && a.branch).map((a) => a.branch);
+  const branches = kept.length ? `ramas conservadas para revisar: ${kept.join(', ')} · ` : '';
+  return `${pending}${branches}limpiar: node scripts/delegate.mjs clean ${run.id}`;
 }
 
 export function report(run, attempts, code) {

@@ -20,7 +20,6 @@ pub(super) fn run_check(error_id: &str) -> DiagnosticCheckResult {
         "node-not-found" => {
             check_binary_on_path("node", "fail", "Descarga Node.js de https://nodejs.org")
         }
-        "qdrant-binary-missing" => check_qdrant_binary(),
         "network-unreachable" => check_network(),
         "port-1420-in-use" => check_port_1420(),
         "gh-cli-missing" => check_binary_on_path(
@@ -95,19 +94,6 @@ fn check_ai_keys() -> DiagnosticCheckResult {
         "warn",
         "No se han detectado API keys de proveedores en la nube en el entorno.".into(),
         Some("Configura ANTHROPIC_API_KEY (o GROQ/GEMINI/OPENAI) en Ajustes > Claves API."),
-    )
-}
-
-fn check_qdrant_binary() -> DiagnosticCheckResult {
-    let found = which::which("qdrant").is_ok()
-        || ultron_dir().is_some_and(|u| u.join("qdrant.exe").exists());
-    if found {
-        return result("ok", "Binario de qdrant encontrado.".into(), None);
-    }
-    result(
-        "warn",
-        "qdrant no está en el PATH ni en ~/.ultron/".into(),
-        Some("Descárgalo de https://github.com/qdrant/qdrant/releases y deja qdrant.exe en ~/.ultron/"),
     )
 }
 

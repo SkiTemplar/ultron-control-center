@@ -120,7 +120,10 @@ pantalla. Reglas clave:
 - Reconciliación por pantalla: `prompt` estable 3 s sin turno ni herramientas;
   `turnId` abierto con `prompt` 10 s sin progreso, con 10 s desde el inicio
   del turno y 10 s desde la última actividad (cuentan los eventos del
-  puente) = `turnEnd` perdido.
+  puente) = `turnEnd` perdido. Si después llega del puente texto, thinking o
+  `stepEnd` de ese mismo turno, o una herramienta del hilo principal, el
+  turno seguía vivo: vuelve a `working` con su `turnId` y su inicio, y lo
+  cierra su `turnEnd` real (en la ventana sustituye al turno `lost`).
 - Comandos: `commandEnd` cierra los locales; los de clase `prompt` esperan
   15 s a que abran turno.
 - Asks: varios a la vez; `waiting` hasta cerrar el último. Interrumpir no

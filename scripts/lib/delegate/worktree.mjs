@@ -97,12 +97,31 @@ export function stageResult(wt, links, baseSha) {
 export function treeDrift(wt, links, tree) {
   const list = (args) => git(wt, args, { allowFail: true }).split('\0').filter(Boolean);
   const paths = [...list(['diff', '--name-only', '-z']), ...list(['ls-files', '--others', '--exclude-standard', '-z'])];
-  const isLink = (p) => links.some((rel) => {
-    const l = rel.replace(/\\/g, '/').replace(/\/$/, '');
-    return p === l || p === `${l}/` || p.startsWith(`${l}/`);
-  });
+  const isLink = linkMatcher(links);
   const index = git(wt, ['write-tree'], { allowFail: true }) === tree ? [] : ['(indice de git)'];
   return [...index, ...paths.filter((p) => !isLink(p))];
+}
+
+/** `(ruta) -> true` si la ruta es uno de los enlaces o cuelga de el. */
+function linkMatcher(links) {
+  const roots = links.map((rel) => rel.replace(/\\/g, '/').replace(/\/$/, ''));
+  return (p) => roots.some((l) => p === l || p === `${l}/` || p.startsWith(`${l}/`));
+}
+
+/**
+ * Ficheros del worktree que difieren de `baseSha` (seguidos, en el indice o en
+ * commits del motor) mas los nuevos sin ignorar; sin el encargo ni los enlaces.
+ * Solo lee (`--no-optional-locks`: vale con un `index.lock` colgado) y lanza si
+ * git falla: quien llama distingue "sin cambios" de "no se sabe".
+ */
+export function changedSince(wt, links, baseSha) {
+  const list = (args) => git(wt, ['--no-optional-locks', ...args]).split('\0').filter(Boolean);
+  const paths = [
+    ...list(['diff', '--no-renames', '--name-only', '-z', baseSha]),
+    ...list(['ls-files', '--others', '--exclude-standard', '-z']),
+  ];
+  const isLink = linkMatcher(links);
+  return [...new Set(paths)].filter((p) => p !== BRIEF_FILE && !isLink(p));
 }
 
 /**

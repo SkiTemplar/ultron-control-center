@@ -2,10 +2,8 @@
 
 import type { DiagnosticReport } from "../../../types";
 
-function HealthRow({ k, v, ok, optional = false }: { k: string; v: string; ok: boolean; optional?: boolean }) {
-  // `optional` rows describe components that may be off on purpose: a negative
-  // value is shown in a neutral tone instead of as a warning.
-  const color = ok ? "var(--color-success)" : optional ? "var(--color-text-tertiary)" : "var(--color-warn)";
+function HealthRow({ k, v, ok }: { k: string; v: string; ok: boolean }) {
+  const color = ok ? "var(--color-success)" : "var(--color-warn)";
   // Stacked label over value: with justify-between in a multi-column grid each
   // value ended up glued to the next cell label ("in PATH codex").
   return (
@@ -37,17 +35,9 @@ export function AppHealthCard({ report }: { report: DiagnosticReport }) {
         <span className={`font-mono ${glyph.color}`}>{glyph.ch}</span>
         Salud de la aplicación
       </div>
-      <div className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
         <HealthRow k="claude" v={report.app.claude_in_path ? "en el PATH" : "no encontrado"} ok={report.app.claude_in_path} />
         <HealthRow k="codex" v={report.app.codex_in_path ? "en el PATH" : "no encontrado"} ok={report.app.codex_in_path} />
-        {/* Qdrant only backs the optional dense recall; with ULTRON_DENSE=0 it is
-            not launched, so "not running" is the expected state. */}
-        <HealthRow
-          k="qdrant"
-          v={report.app.qdrant_running ? "en marcha (:6333)" : "parado (el denso es opcional)"}
-          ok={report.app.qdrant_running}
-          optional
-        />
         <HealthRow k="projects.json" v={report.app.projects_json_ok ? "ok" : "falta o está corrupto"} ok={report.app.projects_json_ok} />
       </div>
     </div>

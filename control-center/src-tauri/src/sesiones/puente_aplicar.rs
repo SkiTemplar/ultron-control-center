@@ -40,6 +40,16 @@ fn actividad(id: &str, e: &Value) {
     );
 }
 
+/// Actividad de un evento con `turnId` (texto, thinking, `stepEnd`): la del
+/// hilo principal lleva el turno, que la máquina usa para reabrir un turno
+/// dado por perdido que sigue vivo; la de un subagente, la genérica.
+fn actividad_de_turno(id: &str, e: &Value) {
+    match s(e, "turnId").filter(|t| !t.is_empty() && agente(e).is_none()) {
+        Some(turn_id) => senales::emitir(id, Senal::ActividadTurno { turn_id }),
+        None => actividad(id, e),
+    }
+}
+
 impl SesionesPuente {
     pub(super) fn apply(&self, id: &str, e: &Value) {
         let Some(tipo) = e.get("type").and_then(Value::as_str) else {
@@ -104,7 +114,7 @@ impl SesionesPuente {
                 self.sink.emit(ev::STREAM_MATCHED, m.payload(id));
             }
         }
-        actividad(id, e);
+        actividad_de_turno(id, e);
     }
 
     fn step_end(&self, id: &str, e: &Value) {
@@ -120,7 +130,7 @@ impl SesionesPuente {
         for m in stream::paso_fin(id, &clave) {
             self.sink.emit(ev::STREAM_MATCHED, m.payload(id));
         }
-        actividad(id, e);
+        actividad_de_turno(id, e);
     }
 
     fn turn_end(&self, id: &str, e: &Value) {
@@ -205,6 +215,7 @@ impl SesionesPuente {
             started_at: now_iso(),
             turns: 0,
             tokens: 0,
+            model: None,
             workflow_run: None,
             last_write_ms: 0,
             ended_at_ms: 0,

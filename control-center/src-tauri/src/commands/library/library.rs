@@ -15,6 +15,10 @@ pub struct AgentCreateArgs {
     pub tools: Vec<String>,
     pub model: Option<String>,
     pub body: String,
+    /// Tope de turnos; lo valida `library::agent_create_inner` (1..=500,
+    /// 200 si falta).
+    #[serde(default, rename = "maxTurns")]
+    pub max_turns: Option<i64>,
     pub target_scope: library::TargetScope,
     pub target_project_id: Option<String>,
 }
@@ -27,6 +31,7 @@ pub async fn agent_create(args: AgentCreateArgs) -> Result<String, String> {
         tools: args.tools,
         model: args.model,
         body: args.body,
+        max_turns: args.max_turns,
     };
     let p = library::agent_create_inner(spec, args.target_scope, args.target_project_id)?;
     Ok(p.display().to_string())

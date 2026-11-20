@@ -17,11 +17,10 @@ const STATS = {
   candidates_pending: 0,
 };
 
-function mockHealth(fts: FtsDetails) {
+function mockHealth(fts: FtsDetails, extraStores: Record<string, unknown> = {}) {
   const health = {
-    embeddings_real: false,
     stores: {
-      qdrant: { healthy: false, message: "off", latency_ms: null },
+      ...extraStores,
       sqlite: { healthy: fts.in_sync, message: "brain.db", latency_ms: null, details: fts },
     },
   };
@@ -62,5 +61,17 @@ describe("MemoryStatusCard · índice FTS5", () => {
       "desincronizado · 12 filas frente a 10 items",
     );
     expect(accentOf(container)).toContain("var(--color-danger)");
+  });
+
+  it("un store legado en la respuesta no se pinta ni apaga el acento", async () => {
+    mockHealth(
+      { fts_rows: 10, item_rows: 10, integrity_ok: true, in_sync: true, error: null },
+      { qdrant: { healthy: false, message: "off", latency_ms: null } },
+    );
+    const { container } = render(<MemoryStatusCard />);
+    await waitFor(() => expect(screen.getByTestId("memory-fts-row")).toBeInTheDocument());
+    expect(screen.queryByText(/qdrant/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/embeddings/i)).not.toBeInTheDocument();
+    expect(accentOf(container)).toContain("var(--color-success)");
   });
 });

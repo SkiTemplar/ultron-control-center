@@ -6,6 +6,11 @@
  *
  * Solo afecta a los casos «ask» del hook (el `.env` y los `.npmrc`/`.pypirc`);
  * las claves privadas, `.ssh` y demás siguen en deny duro con o sin pausa.
+ *
+ * En `bypassPermissions` esos «ask» no preguntan (doble intento, desde el
+ * 2026-11-16): el primer intento sale en deny y la misma llamada repetida en
+ * menos de 120 s pasa (`hooks/scripts/lib/double-attempt.js`). La pausa se mira
+ * antes: con ella vigente, la llamada pasa al primer intento.
  */
 
 /** Tope de la pausa en minutos; el hook ignora una fecha a más de 12 h vista. */

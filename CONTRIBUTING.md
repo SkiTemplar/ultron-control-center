@@ -25,7 +25,7 @@ From an elevated PowerShell on Windows 10/11 with Claude Code already installed 
 ```powershell
 git clone https://github.com/SkiTemplar/ultron-control-center.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
-.\install.ps1                       # auto-installs uv, Qdrant native, hooks (~3 min)
+.\install.ps1                       # auto-installs uv and the hooks (~3 min)
 cd control-center
 npm install ; npm run tauri dev     # launches the desktop app
 ```
@@ -62,8 +62,8 @@ ultron/
       tauri.conf.json               App identifier, window config, allowlist.
 
   scripts/
-    cockpit/                        Python operational layer (brain_index, alerts,
-                                    agent_telemetry, context_primer, doctor, etc.).
+    cockpit/                        Python operational layer (alerts,
+                                    agent_telemetry, doctor, etc.).
     hooks/                          Only auto-changelog.py (run by git-hooks/post-commit).
 
   hooks/
@@ -96,7 +96,7 @@ Avoid Grep-ing blind for a script. `SYSTEM-MAP.md` at the repo root is the pinne
 | A new React tab | `control-center/src/components/<Name>.tsx` | Add the tab id to the `Tab` union and `SECTIONS` in `control-center/src/components/Sidebar.tsx`, then render it in `App.tsx` |
 | A Claude Code hook | `hooks/scripts/<name>.js` (Node) | Register it in `~/.claude/settings.json`, then run `node hooks/regen-manifest.js` to refresh `hooks/manifest.json` and `templates/settings-hooks.json` (the pre-commit `--check` fails on drift; `tests/test_hooks_template.py` checks the template only cites scripts in the repo) |
 | A cockpit Python tool | `scripts/cockpit/<name>.py` (inherit `cockpit_base` where it helps) | A test in `tests/test_<name>.py` and, if user-facing, surface it from a Tauri command or hook |
-| A skill | `~/.claude/skills/<name>/SKILL.md` with mandatory YAML frontmatter (`name`, `description`, `model`) | The skill scanner picks it up automatically; run `uv run python scripts/cockpit/embed_skills.py index` if it should appear in semantic recall (needs Qdrant) |
+| A skill | `~/.claude/skills/<name>/SKILL.md` with mandatory YAML frontmatter (`name`, `description`, `model`) | The skill scanner picks it up automatically |
 | An agent | `~/.claude/agents/<name>.md` (one file, same frontmatter rules, plus an exact 5.5-family `model` and `maxTurns`) | The Agents tab lists it; it refuses to enable or save as active an agent without both (`control-center/src-tauri/src/agents/policy.rs`) |
 | A button prompt | `control-center/src-tauri/src/button_prompts/defaults.rs` (the canonical catalog, `build_defaults`) | Consumers fetch via `getPrompt(key, vars)` from `src/lib/button-prompts.ts` |
 
@@ -116,7 +116,7 @@ Read the files around yours before adding new code. The patterns are consistent 
 - **Python deps via `uv`.** Never `pip install`, never `python script.py`. Use `uv run python script.py` and `uv pip install <pkg>`.
 - **Subscription-first, API keys are opt-in.** ULTRON's default install uses the Claude Code and Codex CLIs against existing subscriptions — no API keys required. A PR that **adds** an opt-in API-key path for users who prefer pay-per-token is welcome (gated behind an off-by-default config flag and clearly marked as optional). What is NOT welcome is removing the subscription path or making the API-key route the default.
 - **No telemetry, no silent network calls.** Every outbound request must be user-initiated. This is non-negotiable.
-- **No Docker.** ULTRON dropped Docker in v15.0.2 in favour of the native Qdrant binary, which only dense recall needs (`ULTRON_DENSE=0` turns it off). Do not reintroduce.
+- **No Docker.** ULTRON dropped Docker in v15.0.2 and has no external services since the dense recall path (Qdrant) was retired on 2026-11-14. Do not reintroduce.
 
 A pre-commit hook runs the PII gate (`audit_personal_data.py`, fails on HIGH), the hooks parity check (`hooks/regen-manifest.js --check`, manifest and install template), the selftest classification check (`scripts/run-selftests.mjs --check`) and `cargo fmt --check`. Heavy checks (cargo test, vitest, tsc) run in CI. Install it once with:
 
@@ -179,7 +179,7 @@ These will be declined regardless of code quality. Open a discussion before writ
 | Making paid API keys the **default** path | Subscription-via-CLI is the contract for fresh installs. Adding an opt-in API-key route as a secondary path is fine; replacing or shadowing the CLI path is not. |
 | Personal data, hard-coded user paths, persona names from a single vault | Use generic identifiers; read paths from config. |
 | Telemetry, analytics, silent outbound calls | All network I/O must be initiated by an explicit user action. |
-| Anything that reintroduces Docker | Removed in v15.0.2. When dense recall is on, the native Qdrant binary is the contract on both Windows and Linux. |
+| Anything that reintroduces Docker | Removed in v15.0.2. ULTRON needs no external services: memory is SQLite + FTS5. |
 | macOS port | Explicit non-goal for v15.x. Windows 11 + Linux x86_64 (v15.5+) are the supported platforms; if you want macOS, fork and maintain it separately. |
 
 ---

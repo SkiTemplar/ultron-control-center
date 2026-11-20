@@ -12,28 +12,13 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
     let meta: &[(&str, &str, &str)] = &[
         (
             "stop-compress-session.js",
-            "Comprimir sesion a Qdrant",
-            "Al cerrar, resume la sesion en hechos estructurados y los guarda en la coleccion Qdrant ultron_sessions para recall semantico.",
-        ),
-        (
-            "routing-dispatcher.js",
-            "Router de skills y personas",
-            "En cada prompt, puntua el texto contra personas y skills y sugiere la mas adecuada (sin LLM).",
+            "Comprimir sesion en memoria",
+            "Al cerrar, extrae de los ultimos turnos decisiones, siguientes pasos y bugs con `ultron-memory capture`, los propone como candidatos a brain.db, lanza `inbox drain --auto` y escribe el compact.json de la sesion.",
         ),
         (
             "save-user-prompt.js",
             "Auto-guardar prompts del usuario",
             "En cada prompt, archiva el mensaje en un inbox markdown por dia y marca el conocimiento critico.",
-        ),
-        (
-            "ensure-qdrant.ps1",
-            "Arrancar Qdrant",
-            "Al iniciar, comprueba que Qdrant este vivo en el puerto 6333 y lo lanza si hace falta.",
-        ),
-        (
-            "memory-warmup.js",
-            "Precalentar memoria",
-            "Al iniciar, precarga el indice de memoria y el modelo de embeddings E5 para que el primer recall no tarde.",
         ),
         (
             "project-card.js",
@@ -47,8 +32,8 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
         ),
         (
             "memory-orchestrate.js",
-            "Orquestar memoria por prompt",
-            "En cada prompt, hace prefetch del contexto relevante (recall hibrido sparse+denso) y lo inyecta como orientacion.",
+            "Tono de la personalidad por prompt",
+            "En cada prompt, inyecta el tono activo de la personalidad de ULTRON (modo ligero, por defecto). Con ULTRON_ORCHESTRATE=full anade recall FTS5, routing y delegacion.",
         ),
         (
             "deny-secrets.py",
@@ -64,21 +49,6 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "batch-capture.js",
             "Captura batch al cerrar",
             "Al cerrar, drena los candidatos de memoria pendientes acumulados durante la sesion.",
-        ),
-        (
-            "qdrant-mirror-sync.js",
-            "Espejar memoria a Qdrant",
-            "Al cerrar, sincroniza los items nuevos de SQLite hacia la coleccion densa de Qdrant.",
-        ),
-        (
-            "route_quality_aggregator.py",
-            "Agregar calidad de routing",
-            "Al cerrar, agrega la telemetria de routing de la sesion para medir aciertos del dispatcher.",
-        ),
-        (
-            "session-end-summary.js",
-            "Resumen al terminar la sesion",
-            "En SessionEnd, escribe un resumen final de la sesion para arrancar mejor la siguiente.",
         ),
         (
             "precompact-preserve-l0.js",

@@ -13,8 +13,8 @@
  * es la forma que escribe el toggle. El sufijo `.disabled` queda como forma
  * legacy de solo lectura.
  *
- * Único punto de verdad para JS: dispatcher v2/v3, sync-registry,
- * kirkardo-eval y catalog-usage resuelven rutas por aquí.
+ * Único punto de verdad para JS: kirkardo-eval y catalog-usage resuelven
+ * rutas por aquí.
  */
 const fs = require('fs');
 const path = require('path');

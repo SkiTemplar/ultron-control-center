@@ -17,12 +17,14 @@
 // Idempotente: si el id ya existe, actualiza los campos que se pasen y deja
 // el resto intacto (no duplica ni borra). Escritura atomica (tmp + rename)
 // con copia previa en projects.json.bak-<fecha> (se conservan las 10 ultimas,
-// lib/registry-backup.mjs).
+// lib/registry-backup.mjs), todo con el lock de fichero projects.json.lock
+// compartido con la app y los demas CLI (lib/projects-registry.mjs; auditoria
+// 2026-11-08, #12): dos altas a la vez ya no se pisan.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
+import { readRegistry, registryPath, updateRegistry } from './lib/projects-registry.mjs';
 import { ensurePortfolioCard } from './lib/portfolio-board.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +33,7 @@ const ULTRON = join(__dirname, '..');
 // lib/research/session.js): permiten a project-create.mjs y a su selftest
 // invocar este script contra un registro/tablero temporal sin tocar el
 // cockpit real del usuario.
-const REGISTRY = process.env.ULTRON_PROJECTS_JSON_OVERRIDE || join(ULTRON, 'cockpit', 'projects.json');
+const REGISTRY = registryPath();
 const BOARDS = process.env.ULTRON_BOARDS_DIR_OVERRIDE || join(ULTRON, 'cockpit', 'projects');
 
 const COLUMN_ROLES = [
@@ -102,9 +104,7 @@ function writeJsonAtomic(path, data) {
   renameSync(tmp, path);
 }
 
-function loadRegistry() {
-  if (!existsSync(REGISTRY)) return { projects: [] };
-  const raw = JSON.parse(readFileSync(REGISTRY, 'utf8'));
+function checkRegistry(raw) {
   if (!Array.isArray(raw.projects)) fail(`${REGISTRY} no tiene un array "projects"`);
   return raw;
 }
@@ -132,6 +132,38 @@ function buildEntry(args, id) {
     // ULTRON 4 F4.3: modo del gate socratico (ausente = strict, decision Q5a).
     ...(args.socratic ? { socratic: args.socratic } : {}),
   };
+}
+
+/** Entrada ya registrada con los campos pasados por argumento actualizados. */
+function updatedEntry(existing, args) {
+  return {
+    ...existing,
+    ...(args.name ? { name: args.name } : {}),
+    path: resolve(args.path),
+    ...(args.color ? { color: args.color } : {}),
+    ...(args.tags.length ? { tags: args.tags } : {}),
+    ...(args.provider ? { default_provider: args.provider } : {}),
+    ...(args.notes !== undefined ? { notes: args.notes } : {}),
+    ...(args.socratic ? { socratic: args.socratic } : {}),
+    last_active: nowIso(),
+  };
+}
+
+/**
+ * Registro nuevo con el alta o la actualizacion de `id` (no muta `registry`).
+ * @returns {{registry: object, existing: boolean, entry: object}}
+ */
+function applyArgs(registry, args, id) {
+  const current = registry.projects.find((p) => p.id === id);
+  const clash = registry.projects.find((p) => p.id !== id && p.path && resolve(p.path) === resolve(args.path));
+  if (clash) {
+    console.warn(`[project-new] AVISO: "${clash.id}" ya apunta a esa misma ruta.`);
+  }
+  const entry = current ? updatedEntry(current, args) : buildEntry(args, id);
+  const projects = current
+    ? registry.projects.map((p) => (p.id === id ? entry : p))
+    : [...registry.projects, entry];
+  return { registry: { ...registry, projects }, existing: Boolean(current), entry };
 }
 
 function ensureBoard(id, cards, dryRun) {
@@ -221,40 +253,37 @@ if (args.provider && !['claude', 'codex'].includes(args.provider)) {
 const id = args.id || slugify(args.name);
 if (!id) fail('no se pudo derivar un id del nombre; pasa --id');
 
-const registry = loadRegistry();
-const existing = registry.projects.find((p) => p.id === id);
-const clash = registry.projects.find((p) => p.id !== id && p.path && resolve(p.path) === resolve(args.path));
-if (clash) {
-  console.warn(`[project-new] AVISO: "${clash.id}" ya apunta a esa misma ruta.`);
-}
-
-if (existing) {
-  if (args.name) existing.name = args.name;
-  existing.path = resolve(args.path);
-  if (args.color) existing.color = args.color;
-  if (args.tags.length) existing.tags = args.tags;
-  if (args.provider) existing.default_provider = args.provider;
-  if (args.notes !== undefined) existing.notes = args.notes;
-  if (args.socratic) existing.socratic = args.socratic;
-  existing.last_active = nowIso();
-} else {
-  registry.projects.push(buildEntry(args, id));
-}
-
-const board = ensureBoard(id, args.cards, args.dryRun);
-
 if (args.dryRun) {
-  console.log(`[project-new] DRY RUN — ${existing ? 'actualizaria' : 'crearia'} "${id}"`);
+  const plan = applyArgs(checkRegistry(readRegistry(REGISTRY, { allowMissing: true })), args, id);
+  const board = ensureBoard(id, args.cards, true);
+  console.log(`[project-new] DRY RUN — ${plan.existing ? 'actualizaria' : 'crearia'} "${id}"`);
   console.log(`[project-new] tablero: ${board.created ? 'se crearia' : 'ya existe'}, tarjetas nuevas: ${board.added}`);
-  syncPortfolio({ id, name: args.name || existing?.name || id, path: resolve(args.path) }, true);
+  syncPortfolio({ id, name: plan.entry.name || id, path: resolve(args.path) }, true);
   process.exit(0);
 }
 
-mkdirSync(dirname(REGISTRY), { recursive: true });
-reportPruneFailures('project-new', backupWithRetention(REGISTRY));
-writeJsonAtomic(REGISTRY, registry);
+// Leer, aplicar, crear el tablero y escribir van dentro del lock del registro:
+// el tablero se crea antes de escribir el alta, como antes del lock.
+let existing = false;
+let entry = null;
+let board = null;
+try {
+  updateRegistry(
+    REGISTRY,
+    (current) => {
+      const plan = applyArgs(checkRegistry(current), args, id);
+      existing = plan.existing;
+      entry = plan.entry;
+      board = ensureBoard(id, args.cards, false);
+      return plan.registry;
+    },
+    { tag: 'project-new', allowMissing: true },
+  );
+} catch (e) {
+  fail(e.message);
+}
 
 console.log(`[project-new] ${existing ? 'actualizado' : 'registrado'}: ${id} -> ${resolve(args.path)}`);
 console.log(`[project-new] tablero: ${board.created ? 'creado' : 'existente'}${board.added ? `, +${board.added} tarjeta(s)` : ''}`);
-syncPortfolio(registry.projects.find((p) => p.id === id), false);
+syncPortfolio(entry, false);
 console.log('[project-new] si ULTRON esta abierto, recarga la pestana Projects para verlo.');

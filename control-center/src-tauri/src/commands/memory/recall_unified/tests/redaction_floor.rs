@@ -53,16 +53,12 @@ fn assemble_pack_redacts_pii_in_summary() {
         FusedHit {
             canonical_id: pii_item.id.clone(),
             rrf_score: 0.9,
-            dense_rank: Some(0),
             sparse_rank: None,
-            dense_score: Some(0.9),
         },
         FusedHit {
             canonical_id: clean_item.id.clone(),
             rrf_score: 0.8,
-            dense_rank: Some(1),
             sparse_rank: None,
-            dense_score: Some(0.8),
         },
     ];
 
@@ -117,15 +113,14 @@ fn assemble_pack_redacts_pii_in_summary() {
     );
 }
 
-// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A fused hit with NO
-// dense backing whose sparse rank is in the BM25 TAIL (>= SPARSE_TAIL_CUTOFF) is
-// lexical noise (shares a stray term; E5 did not rank it relevant) and must be
-// DROPPED — this is the fix for the "Mundial 2026 / menú de 5 decisiones" class
-// of irrelevant memories that flooded the orchestrate pack. dense-backed hits
-// (any rank) and sparse-TOP hits (rank < cutoff) must still inject. Unit-tested
-// without Qdrant/E5; falls RED if the floor is removed.
+// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A hit whose sparse
+// rank is in the BM25 TAIL (>= SPARSE_TAIL_CUTOFF) is lexical noise (shares a
+// stray term) and must be DROPPED — this is the fix for the "Mundial 2026 /
+// menú de 5 decisiones" class of irrelevant memories that flooded the
+// orchestrate pack. sparse-TOP hits (rank < cutoff) must still inject. Falls
+// RED if the floor is removed or moved off by one.
 #[test]
-fn assemble_pack_drops_bm25_tail_without_dense_backing() {
+fn assemble_pack_drops_the_bm25_tail() {
     use crate::commands::memory::recall_unified::types_model::SPARSE_TAIL_CUTOFF;
     use crate::memory::model::MemoryItem;
     use crate::memory::sqlite_store::{apply_schema, insert_item};
@@ -149,31 +144,25 @@ fn assemble_pack_drops_bm25_tail_without_dense_backing() {
         it.id
     };
 
-    let dense_backed = mk("relevante via semantica E5"); // dense_rank=Some -> pasa
-    let sparse_top = mk("relevante via BM25 termino fuerte"); // sparse rank bajo -> pasa
-    let bm25_tail = mk("Fuente de datos cambiada a TheSportsDB para el Mundial 2026"); // cola sin dense -> FUERA
+    let sparse_top = mk("relevante via BM25 termino fuerte"); // rank 0 -> pasa
+    let sparse_edge = mk("ultimo rango que aun cuenta como fuerte"); // cutoff-1 -> pasa
+    let bm25_tail = mk("Fuente de datos cambiada a TheSportsDB para el Mundial 2026"); // cola -> FUERA
 
     let fused = vec![
         FusedHit {
-            canonical_id: dense_backed.clone(),
+            canonical_id: sparse_top.clone(),
             rrf_score: 0.030,
-            dense_rank: Some(5),
-            sparse_rank: None,
-            dense_score: Some(0.82),
+            sparse_rank: Some(0),
         },
         FusedHit {
-            canonical_id: sparse_top.clone(),
+            canonical_id: sparse_edge.clone(),
             rrf_score: 0.025,
-            dense_rank: None,
-            sparse_rank: Some(2), // top BM25 (< cutoff)
-            dense_score: None,
+            sparse_rank: Some(SPARSE_TAIL_CUTOFF - 1),
         },
         FusedHit {
             canonical_id: bm25_tail.clone(),
             rrf_score: 0.018,
-            dense_rank: None,
-            sparse_rank: Some(SPARSE_TAIL_CUTOFF + 5), // cola BM25, sin dense
-            dense_score: None,
+            sparse_rank: Some(SPARSE_TAIL_CUTOFF), // primer rango de la cola
         },
     ];
 
@@ -181,22 +170,27 @@ fn assemble_pack_drops_bm25_tail_without_dense_backing() {
         assemble_pack(&conn, &fused, 8, None, false, PER_CALL_TOKEN_CAP);
     let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
+    assert!(inj.contains(&&sparse_top), "rank 0 debe inyectarse");
     assert!(
-        inj.contains(&&dense_backed),
-        "un hit con respaldo dense (cualquier rango) debe inyectarse"
-    );
-    assert!(
-        inj.contains(&&sparse_top),
-        "un hit sparse-TOP (rank < cutoff) debe inyectarse aunque no tenga dense"
+        inj.contains(&&sparse_edge),
+        "el último rango antes del cutoff debe inyectarse"
     );
     assert!(
         !inj.contains(&&bm25_tail),
-        "un hit de cola BM25 sin respaldo dense NO debe inyectarse (relevance floor)"
+        "un hit de cola BM25 NO debe inyectarse (relevance floor)"
     );
     assert!(
         discarded
             .iter()
             .any(|d| d.canonical_id == bm25_tail && d.reason.contains("relevance floor")),
         "el descarte de la cola BM25 debe atribuirse al relevance floor"
+    );
+    assert_eq!(
+        injected
+            .iter()
+            .find(|e| e.canonical_id == sparse_top)
+            .map(|e| e.reason.as_str()),
+        Some("sparse#1"),
+        "la razón cita el rango BM25 (1-based)"
     );
 }

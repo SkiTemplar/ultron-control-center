@@ -252,6 +252,9 @@ pub struct AgentNode {
     /// Tope de turnos (`maxTurns`) del frontmatter de
     /// `~/.claude/agents/<tipo>.md`; `None` si el agente no lo declara.
     pub max_turns: Option<u32>,
+    /// Modelo con el que responde (`message.model` de su transcript); `None`
+    /// hasta su primer mensaje.
+    pub model: Option<String>,
     /// Run de `Workflow` al que pertenece (`subagents/workflows/<runId>`).
     pub workflow_run: Option<String>,
     /// Última escritura del transcript, en ms desde la época.

@@ -19,7 +19,8 @@ $LegacyCockpitTaskNames = @(
     "Standup-Weekday",
     "Research-Weekly",
     "GithubTrending-Daily",
-    "TUI-Login"
+    "TUI-Login",
+    "ScanProjects-Login"
 )
 
 function Get-CockpitOwnedNames {

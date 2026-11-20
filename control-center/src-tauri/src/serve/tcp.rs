@@ -1,6 +1,6 @@
 //! Arranque del daemon y bucle de aceptación TCP.
 //!
-//! Aquí se junta todo lo demás: el claim del lockfile, el warmup de E5, los
+//! Aquí se junta todo lo demás: el claim del lockfile, los
 //! hilos de fondo y el bucle que acepta conexiones de loopback y despacha cada
 //! línea JSON al handler puro de `protocol`.
 
@@ -18,7 +18,7 @@ use super::lockfile::{
 };
 use super::protocol::{handle_request, Req};
 use super::request_log::log_request;
-use super::watchdog::{spawn_idle_watchdog, spawn_model_release_sweep};
+use super::watchdog::spawn_idle_watchdog;
 
 /// Per-connection read timeout so a half-open socket can't pin a worker thread.
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
@@ -32,10 +32,6 @@ const MAX_CONNECTIONS: usize = 32;
 /// `Ok({already_running:true,...})` immediately if a live daemon is already up
 /// (idempotent — safe to spawn on every SessionStart).
 pub fn run_daemon() -> Result<Value, String> {
-    // Este proceso ES el daemon: marcarlo antes de nada para que el cliente
-    // (`daemon_client`) no se pregunte a si mismo y se cuelgue esperando su
-    // propia respuesta.
-    crate::daemon_client::mark_in_daemon();
     // Idempotency: if a healthy daemon already owns the lockfile, do nothing.
     if let Some((port, token)) = read_lockfile() {
         if ping_existing(port, &token) {
@@ -46,8 +42,8 @@ pub fn run_daemon() -> Result<Value, String> {
     let token = gen_token();
     let started = Instant::now();
 
-    // Claim atomico ANTES del warmup: un solo proceso paga E5; los perdedores
-    // salen aqui sin calentar nada (ver claim_lockfile).
+    // Claim atomico ANTES de abrir el socket: los perdedores salen aqui (ver
+    // claim_lockfile).
     if !claim_lockfile(&token)? {
         return Ok(json!({ "already_running": true, "claimed_by_peer": true }));
     }
@@ -68,38 +64,8 @@ pub fn run_daemon() -> Result<Value, String> {
         }
     };
 
-    // Warm E5 ONCE up front so the very first orchestrate request is already hot.
-    let _ = crate::qdrant::embed_e5("warmup", true);
-
-    // Suelta los modelos que lleven su ventana sin usarse (ver watchdog.rs).
-    spawn_model_release_sweep();
-
-    // NO se calienta el CROSS-ENCODER aqui, a proposito (medido y decidido
-    // 2026-08-14). `BGERerankerV2M3` es un modelo SEPARADO de E5 (`RERANKER`
-    // OnceCell en qdrant.rs) y precalentarlo cuesta 1,5 GB residentes desde el
-    // arranque — medido A/B: daemon 1501 MB sin el, 2962 MB con el, y hasta
-    // 3579 MB con uso — que se pagan aunque la sesion sea pura charla y no
-    // rerankee ni una vez. El problema que iba a resolver (el pico del primer
-    // prompt tecnico venciendo el plazo del hook y descartando el prefetch
-    // ENTERO) ya lo cierra el timeout del hook, subido de 12 s a 20 s el mismo
-    // dia. Carga lazy en la primera peticion que lo necesite: se paga el pico
-    // UNA vez por sesion y solo quien de verdad usa el rerank.
-
-    // Idempotent: keep `ultron_skills_lazy` populated so the v3 semantic fallback
-    // (skill_query) works after a Qdrant wipe / skill change without a manual
-    // `reindex-skills-lazy`. Cheap (one probe search, then skip if populated).
-    // Best-effort: a failure here must not stop the daemon from serving.
-    match crate::memory::catalog::maybe_index_skills_lazy() {
-        Ok((n, _)) if n > 0 => {
-            eprintln!("ultron-memory serve: indexed {n} lazy skills into ultron_skills_lazy");
-        }
-        _ => {}
-    }
-
     // Publish the FULL lockfile (claim + port). El claim atomico garantiza que
-    // somos el unico dueño, asi que el overwrite plano es seguro; el re-check
-    // post-warmup anterior (audit 2026-07-20, cat1) queda obsoleto porque la
-    // carrera se decide ahora ANTES del warmup.
+    // somos el unico dueño, asi que el overwrite plano es seguro.
     let lock = lockfile_path();
     let body = json!({
         "port": port,
@@ -179,28 +145,16 @@ fn handle_conn(stream: TcpStream, token: &str, last_activity: &AtomicI64, starte
     if req.token.as_deref() == Some(token) {
         last_activity.store(now_ms(), Ordering::Relaxed);
     }
-    // Traza por petición (2026-09-07): hasta hoy el daemon no dejaba rastro de
-    // lo que servía, así que un prompt degradado ("orchestrate sin respuesta a
-    // los 15 s") no se podía atribuir a nada — modelos fríos, semáforo lleno o
-    // trabajo real. Se anota el estado de los modelos ANTES de servir.
+    // Traza por petición (2026-09-07): sin ella un prompt degradado
+    // ("orchestrate sin respuesta a los 15 s") no se podía atribuir a nada.
+    // Todas las peticiones se atienden A LA VEZ (2026-09-27), cada una en su
+    // hilo: lectura de SQLite y llamadas a proveedores LLM corren en paralelo.
     let t0 = Instant::now();
-    let models_before = crate::qdrant::loaded_models();
-
-    // Todas las peticiones se atienden A LA VEZ (2026-09-27). Lo único que se
-    // serializa es el forward pass de los modelos, en un turno FIFO sin tope
-    // (`crate::qdrant::inference_turn`): lectura de SQLite, búsquedas en
-    // Qdrant y llamadas a proveedores LLM corren en paralelo. Antes un semáforo
-    // de 2 plazas respondía "busy" a los 2,5 s y el hook reintentaba o
-    // degradaba: medido con 3 sesiones simultáneas, 92 "busy" y 27 de 30
-    // prompts sin memoria completa. La espera por contención ya no degrada;
-    // solo cuesta latencia, y se anota por petición (`inference_wait_ms`).
-    let _ = crate::qdrant::take_inference_wait_ms();
     let (resp, shutdown) = handle_request(&req, token, started);
-    let inference_wait_ms = crate::qdrant::take_inference_wait_ms();
 
     let _ = writeln!(writer, "{resp}");
     let _ = writer.flush();
-    log_request(&req, &resp, t0.elapsed(), &models_before, inference_wait_ms);
+    log_request(&req, &resp, t0.elapsed());
     if shutdown {
         remove_lockfile_if_owned(token);
         std::process::exit(0);

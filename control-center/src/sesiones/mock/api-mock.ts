@@ -238,6 +238,7 @@ export function createMockApi({ autoplay = true }: { autoplay?: boolean } = {}):
       ],
       weekInFiveHourPct: 382.5,
     }),
+    delegations: async () => [],
     enginesUsage: async () => ({
       generatedAtMs: Date.now(),
       engines: [

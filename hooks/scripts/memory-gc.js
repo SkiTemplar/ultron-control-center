@@ -29,12 +29,23 @@
 // ~/.claude/settings.json (async: su stdout se descarta, solo cuentan sus
 // efectos a fichero).
 //
+// Tarea programada (2026-11-14): Sessions cierra el Job Object del PTY
+// (KILL_ON_JOB_CLOSE) en cuanto Claude sale, y este hook es async. Cuando el gc
+// toca de verdad (decenas de segundos), el proceso muere a medias sin dejar
+// línea ni estado: del 2026-11-13 al 2026-11-14 vencido y sin ejecutarse en
+// tres cierres seguidos. La tarea ULTRON-MemoryGC (scripts/install-memory-gc.ps1)
+// lo lanza con `--scheduled` fuera de cualquier Job; la cadencia y el backoff
+// son los mismos, así que el hook y la tarea no duplican trabajo. Con
+// `--scheduled` no se lee stdin ni se lanza memory-verify (no hay sesión). Cada
+// línea del log lleva `trigger` y, antes de llamar al binario, una línea
+// `phase: "start"`: un start sin cierre posterior es un proceso matado.
+//
 // Opt-out: CLAUDE_NO_HOOKS=1 o MEMORY_GC_DISABLED=1.
 // Seams de test (el selftest no toca ni brain.db ni el binario real):
 //   ULTRON_MEMORY_BIN  binario a ejecutar (stub en el selftest)
 //   MEMORY_GC_STATE    ruta del fichero de estado
 //   MEMORY_GC_LOG      ruta del log JSONL
-//   MEMORY_GC_TIMEOUT_MS  timeout del binario (por defecto 110000)
+//   MEMORY_GC_TIMEOUT_MS  timeout del binario (por defecto 110000; 600000 con --scheduled)
 
 'use strict';
 
@@ -53,11 +64,22 @@ const STATE_PATH = process.env.MEMORY_GC_STATE || path.join(HOME, '.ultron', '.t
 // Ventana del mantenimiento (dias) y cadencia minima entre ejecuciones.
 const GC_DAYS = 90;
 const INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-// Margen bajo el timeout=120s del hook: deja ~10s para el arranque de node y el
-// registro. El caso caro es un VACUUM de 126 MB.
-const GC_TIMEOUT_MS = Number(process.env.MEMORY_GC_TIMEOUT_MS) > 0 ? Number(process.env.MEMORY_GC_TIMEOUT_MS) : 110000;
+// Lanzado por la tarea programada en vez de por SessionEnd.
+const IS_SCHEDULED = process.argv.includes('--scheduled');
+// Como hook, margen bajo el timeout=120s de settings.json: deja ~10s para el
+// arranque de node y el registro. Desde la tarea programada no hay ese tope y el
+// caso caro (un VACUUM de 126 MB) tiene 10 min.
+const GC_TIMEOUT_MS = Number(process.env.MEMORY_GC_TIMEOUT_MS) > 0
+  ? Number(process.env.MEMORY_GC_TIMEOUT_MS)
+  : IS_SCHEDULED ? 600000 : 110000;
 // Primer escalón del backoff tras un fallo; se dobla con cada fallo seguido.
 const BACKOFF_BASE_MS = 6 * 60 * 60 * 1000;
+const TRIGGER = IS_SCHEDULED ? 'scheduled' : 'session-end';
+
+/** Línea del log con el origen del disparo. */
+function logLine(record) {
+  appendJsonl(LOG_PATH, { trigger: TRIGGER, ...record });
+}
 
 /** Espera mínima antes de reintentar tras `fallos` fallos seguidos. */
 function backoffMs(fallos) {
@@ -95,7 +117,7 @@ function causaDelFallo(res) {
 function registrarFallo(estado, ahora, entrada, causa) {
   const previos = estado && Number.isFinite(estado.fail_count) ? estado.fail_count : 0;
   const fail_count = previos + 1;
-  appendJsonl(LOG_PATH, {
+  logLine({
     ok: false,
     ...entrada,
     cause: causa,
@@ -147,13 +169,13 @@ function launchMemoryVerify() {
 
 function main() {
   if (process.env.CLAUDE_NO_HOOKS === '1' || process.env.MEMORY_GC_DISABLED === '1') return;
-  launchMemoryVerify();
+  if (!IS_SCHEDULED) launchMemoryVerify();
 
   const ahora = Date.now();
   const estado = readState();
   if (estado && Number.isFinite(estado.last_run_ms) && ahora - estado.last_run_ms < INTERVAL_MS) {
     const restante = INTERVAL_MS - (ahora - estado.last_run_ms);
-    appendJsonl(LOG_PATH, {
+    logLine({
       skipped: 'cadencia',
       next_in_h: Math.round((restante / 3600000) * 10) / 10,
     });
@@ -165,7 +187,7 @@ function main() {
   if (fallos > 0 && Number.isFinite(estado.last_fail_ms)) {
     const espera = backoffMs(fallos) - (ahora - estado.last_fail_ms);
     if (espera > 0) {
-      appendJsonl(LOG_PATH, {
+      logLine({
         skipped: 'backoff',
         fail_count: fallos,
         last_error: estado.last_error || null,
@@ -177,10 +199,12 @@ function main() {
 
   const bin = findBinary();
   if (!bin) {
-    appendJsonl(LOG_PATH, { skipped: 'sin binario ultron-memory' });
+    logLine({ skipped: 'sin binario ultron-memory' });
     return;
   }
 
+  // Rastro previo a la llamada cara: si el proceso muere aquí, queda el start.
+  logLine({ phase: 'start' });
   const empezado = Date.now();
   let res;
   try {
@@ -225,7 +249,7 @@ function main() {
   }
 
   const deadlines = out.deprecation_deadlines && typeof out.deprecation_deadlines === 'object' ? out.deprecation_deadlines : null;
-  appendJsonl(LOG_PATH, {
+  logLine({
     ok: true,
     ms,
     days: out.days,

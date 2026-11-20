@@ -313,3 +313,107 @@ fn un_fin_del_transcript_tardio_sigue_armando_la_red() {
         .count();
     assert_eq!(turnos, 2);
 }
+
+/// Turno `t1` dado por perdido: prompt en pantalla y 10 s sin progreso ni
+/// actividad, el silencio normal antes del primer token del modelo.
+fn turno_dado_por_perdido() -> H {
+    let mut h = H::trabajando_v2();
+    h.s(pantalla(P::Prompt));
+    h.avanza(10_000);
+    assert_eq!(h.e.status, S::Idle, "10 s quieto: perdido");
+    assert!(h.e.cerrados.contains(&"t1".to_string()));
+    h.todos.clear();
+    h
+}
+
+fn texto_de(turn_id: &str) -> Senal {
+    Senal::ActividadTurno {
+        turn_id: turn_id.into(),
+    }
+}
+
+/// Regresión 2026-11-15 (sesión 7b952eba): el turno dado por perdido seguía
+/// vivo y su `turnEnd` real llegó 4 min después; mientras, el punto de estado
+/// marcaba idle aunque el puente siguiera mandando texto del mismo turno.
+#[test]
+fn la_actividad_del_turno_dado_por_perdido_lo_reabre() {
+    let mut h = turno_dado_por_perdido();
+    let inicio = h.e.perdido.as_ref().map(|p| p.1).expect("turno perdido");
+    h.avanza(20_000);
+    assert!(h.e.pausa_plazo.is_some(), "cierre por plazo con puente");
+    h.s(texto_de("t1"));
+    assert_eq!(h.e.status, S::Working, "el turno seguía vivo");
+    assert_eq!(h.e.turn_id(), Some("t1"));
+    assert_eq!(
+        h.e.working_since,
+        Some(inicio),
+        "conserva el inicio del turno"
+    );
+    assert!(!h.e.cerrados.contains(&"t1".to_string()));
+    assert!(
+        h.e.pausa_plazo.is_none(),
+        "el puente vive: sin pausa de plazo"
+    );
+    h.ahora += 500;
+    h.s(fin("t1"));
+    assert_eq!(h.e.status, S::Idle, "lo cierra su turnEnd real");
+    let cierre = h
+        .todos
+        .iter()
+        .find_map(|e| match e {
+            Efecto::EmitirTurno(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("turno emitido");
+    assert_eq!(cierre.motivo, "answer");
+    assert_eq!(cierre.desde, inicio);
+    assert!(h.drena());
+}
+
+/// Una herramienta del hilo principal tras el cierre por plazo también prueba
+/// que el turno sigue: vuelve a working y la herramienta queda abierta.
+#[test]
+fn una_herramienta_tras_el_turno_dado_por_perdido_lo_reabre() {
+    let mut h = turno_dado_por_perdido();
+    h.avanza(5_000).s(Senal::HerramientaInicio {
+        tool_use_id: "tu1".into(),
+        nombre: "Bash".into(),
+        timeout_ms: None,
+    });
+    assert_eq!(h.e.status, S::Working);
+    assert_eq!(h.e.turn_id(), Some("t1"));
+    assert!(h.e.herramientas.contains_key("tu1"));
+}
+
+/// Casos negativos: la actividad de otro turno, la que llega tras el
+/// `turnEnd` real del perdido y la de un turno cerrado de verdad no reabren.
+#[test]
+fn la_actividad_ajena_o_tras_el_cierre_real_no_reabre() {
+    let mut h = turno_dado_por_perdido();
+    h.s(texto_de("t0"));
+    assert_eq!(h.e.status, S::Idle, "actividad de otro turno");
+    h.s(fin("t1"));
+    assert!(h.e.perdido.is_none(), "llegó el turnEnd real");
+    h.s(texto_de("t1"));
+    assert_eq!(h.e.status, S::Idle, "tras el cierre real");
+
+    let mut g = H::trabajando_v2();
+    g.s(fin("t1"));
+    assert_eq!(g.e.status, S::Idle);
+    g.s(texto_de("t1"));
+    assert_eq!(g.e.status, S::Idle, "turno cerrado por su turnEnd");
+    assert!(g.e.perdido.is_none());
+}
+
+/// Un turno nuevo tras el perdido descarta su reapertura: la actividad
+/// atrasada del perdido no cambia el turno en curso.
+#[test]
+fn un_turno_nuevo_descarta_el_perdido() {
+    let mut h = turno_dado_por_perdido();
+    h.s(envio()).s(Senal::TurnoInicio {
+        turn_id: "t2".into(),
+    });
+    assert!(h.e.perdido.is_none());
+    h.s(texto_de("t1"));
+    assert_eq!(h.e.turn_id(), Some("t2"));
+}

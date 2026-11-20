@@ -62,13 +62,11 @@ pub struct OrchestrationContext {
     pub route: String, // detected intent
     pub project_id: Option<String>,
     pub workflow: Option<WorkflowChoice>,
-    pub delegate_agents: Vec<AgentChoice>, // real specialists, semantic match
+    pub delegate_agents: Vec<AgentChoice>, // real specialists, preferred by intent
     pub delegate_skills: Vec<SkillChoice>, // relevant skills (personas/technical/meta)
-    pub memories: Vec<RecallEntry>,        // from hybrid recall
+    pub memories: Vec<RecallEntry>,        // from FTS5 recall
     pub constraints: Vec<String>,
     pub warnings: Vec<String>,
-    /// El pack de este turno pasó por el cross-encoder (modo por ruta, 2026-09-06).
-    pub rerank_hot: bool,
     pub token_budget: i64,
     /// Whether recall ran in CROSS-PROJECT mode (whole-brain). True only when a
     /// `project_id` is set AND the prompt explicitly asks about another project

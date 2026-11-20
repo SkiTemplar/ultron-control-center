@@ -6,7 +6,7 @@ import { join } from "node:path";
 import * as P from "./predicates.mjs";
 import * as R2 from "./predicates-r2.mjs";
 import { pluginIndex } from "./claude-env.mjs";
-import { AGENTS_DIR, CC, CC_SRC, CC_TAURI, CLAUDE, COCKPIT, HOME, HOOKS_MANIFEST, REPO, ULTRON, cat, fileExists, fwd, grepInFiles, hookSandbox, invokeCallsites, readJSON, spawnHook } from "./core.mjs";
+import { AGENTS_DIR, CC, CC_SRC, CC_TAURI, CLAUDE, COCKPIT, HOME, HOOKS_MANIFEST, REPO, ULTRON, cat, fileExists, fwd, grepInFiles, hookSandbox, readJSON, spawnHook } from "./core.mjs";
 import { ORCH_HOOK, RESUME_HOOK } from "./hook-io.mjs";
 
 // ---------------------------------------------------------------------------
@@ -329,20 +329,9 @@ cat(9, "Hooks (arranque resiliente)", [
 // CAT 10 — Union del sistema (e2e)
 // ---------------------------------------------------------------------------
 cat(10, "Union del sistema (e2e)", [
-  {
-    id: "10.1",
-    desc: "orchestrate_prompt tiene un invoke() REAL en el frontend (no comentarios ni tests)",
-    auto: true,
-    check() {
-      // Antes contaba cualquier mencion, comentarios incluidos: "5 referencias"
-      // para un unico invoke (auditoria 2026-10-23, medidor-5).
-      const calls = invokeCallsites("orchestrate_prompt");
-      return {
-        pass: calls.length >= 1,
-        detail: `${calls.length} invoke real(es) de orchestrate_prompt` + (calls.length ? ` (${calls.map((c) => c.file.split(/[/\\]/).pop()).join(", ")})` : ""),
-      };
-    },
-  },
+  // 10.1 (el comando de previsualizacion de la orquestacion con un invoke real en
+  // el frontend) retirado el 2026-11-15: el comando y su panel se retiraron con
+  // el modo full de memory-orchestrate. 10.2 sigue midiendo el cableado del resto.
   {
     id: "10.2",
     desc: ">= 90% comandos registrados en handlers.rs (incluido finance) tienen caller en el frontend de produccion (sin tests ni comentarios)",

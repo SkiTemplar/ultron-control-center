@@ -30,8 +30,11 @@
 //     `Documentos/WindowsPowerShell` y `Documentos/PowerShell`.
 //
 // ALCANCE REAL: es detección y reversión DESPUÉS del turno, no prevención.
-// Lo que se escriba fuera de esta lista no se ve. Si otro proceso (o el
-// usuario) edita legítimamente una de estas rutas durante un turno de Pupus,
+// Lo que se escriba fuera de esta lista no se ve: en particular, los
+// `.git/hooks`, `.git/config`, `.claude/`, `CLAUDE.md` y `.mcp.json` de
+// cualquier repo que no sea `~/.ultron` (incluidos sus worktrees en
+// `.ultron/.claude/worktrees`), que aquí no se vigilan (el freno del chat
+// pregunta por todos salvo los `CLAUDE.md`). Si otro proceso (o el usuario) edita legítimamente una de estas rutas durante un turno de Pupus,
 // también se revierte: queda en cuarentena, no se pierde (incluye
 // `~/.ultron/hooks`, `mods` y `scripts`, que son parte del repo: editarlos o un
 // checkout durante un turno de Codex se deshace; y un redeploy de `.ultron/bin`
@@ -67,11 +70,25 @@ const SKIPPED_DIRS: [&str; 5] = [
 ];
 const QUARANTINE_DIR: &str = ".ultron/cockpit/pupus-guardrail";
 
-const HOME_FILES: [&str; 20] = [
+const HOME_FILES: [&str; 29] = [
     ".claude/settings.json",
     ".claude/settings.local.json",
     ".claude.json",
     ".claude/CLAUDE.md",
+    // Instrucciones y MCP que cargan los `claude -p`, `codex exec` y
+    // Antigravity del propio Pupus (cwd = carpeta de usuario) y las sesiones de
+    // ULTRON (cwd = `~/.ultron`, con hooks de proyecto en `.ultron/.claude`).
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md",
+    ".mcp.json",
+    ".ultron/CLAUDE.md",
+    ".ultron/.mcp.json",
+    ".ultron/.claude/settings.json",
+    ".ultron/.claude/settings.local.json",
+    // `core.hooksPath`, `core.fsmonitor` o un alias ejecutan código en cada
+    // `git status` o commit del repo de ULTRON.
+    ".ultron/.git/config",
     ".claude/plugins/installed_plugins.json",
     ".claude/plugins/known_marketplaces.json",
     ".ultron/.env",
@@ -92,12 +109,20 @@ const HOME_FILES: [&str; 20] = [
 
 /// Carpetas pequeñas y críticas: van antes que el resto para que nunca se
 /// queden fuera del presupuesto.
-const HOME_DIRS: [&str; 9] = [
+const HOME_DIRS: [&str; 15] = [
     ".claude/hooks",
     ".claude/agents",
     ".claude/commands",
     ".claude/rules",
     ".ultron/hooks",
+    ".ultron/.git/hooks",
+    ".ultron/.claude/hooks",
+    ".ultron/.claude/agents",
+    ".ultron/.claude/commands",
+    ".ultron/.claude/rules",
+    // Enlaces a la pool de skills: no se siguen, pero un enlace o una carpeta
+    // nuevos se ven.
+    ".ultron/.claude/skills",
     ".ssh",
     ".codex/rules",
     ".config/fish",

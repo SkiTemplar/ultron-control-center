@@ -85,12 +85,12 @@ cablean y por qué se descartan los demás) está en
 | `SessionStart` | `ensure-project.js` | sync | Da de alta el proyecto en `cockpit/projects.json` y aplica las normas de alta. |
 | `UserPromptSubmit` | `socratic-gate.js` | sync | Protocolo socrático; modo por proyecto en `cockpit/projects.json` (`scripts/project-socratic.mjs <id> <modo>`). |
 | `UserPromptSubmit` | `save-user-prompt.js` | sync | Archiva cada prompt no trivial en el inbox diario. |
-| `UserPromptSubmit` | `memory-orchestrate.js` | sync | Modo ligero por defecto (solo el tono); `ULTRON_ORCHESTRATE=full` restaura recall, routing y delegación. |
+| `UserPromptSubmit` | `memory-orchestrate.js` | sync | Solo inyecta un tono distinto del default (el modo completo se borró el 2026-11-14). |
 | `UserPromptSubmit` | `session-feedback-capture.js` | sync | Captura `fb: si\|no\|estorbo [nota]` en `logs/session-feedback.jsonl`. |
 | `UserPromptSubmit` | `run-project-tests-report.js` | sync | Informa al modelo de los tests rotos que lanzó `run-project-tests.js`. |
 | `UserPromptSubmit` | `context-guard.js` | sync | A partir de 200k de contexto decide con la bitácora si conviene compactar. |
 | `UserPromptSubmit` | `usage-pace-guard.js` | sync | Avisa si el uso de las ventanas de 5 h o semanal va por delante del tiempo transcurrido. |
-| `PreToolUse` | `deny-secrets.js` | sync | Gate de credenciales (deny duro de claves, keystores, `.ssh`, etc.). |
+| `PreToolUse` | `deny-secrets.js` | sync | Gate de credenciales (deny duro de claves, keystores, `.ssh`, etc.). Sus «ask» y el de `guardrails-pre` (push forzado), en `bypassPermissions`, siguen el doble intento de `lib/double-attempt.js`: deny el primer intento y pasa la misma llamada repetida en menos de 120 s. |
 | `PreToolUse` | `document-convert-hint.js` | sync | En un `Read` de `.docx/.pptx/.xlsx/.epub` o PDF grande sugiere `markitdown`. |
 | `PreToolUse` | `codegraph-first.js` | sync | En un proyecto con índice de CodeGraph, deniega una vez por sesión y subagente la segunda exploración (`Grep`, `Glob` o `Read` de código) sin haber usado CodeGraph. Fail-open; `ULTRON_CODEGRAPH_FIRST=0` lo apaga. |
 | `PreToolUse` | `guardrails-pre.js` | sync | Comprobaciones deterministas (agente inexistente, bandera de saltarse permisos...). |
@@ -124,20 +124,13 @@ Fuera de `settings.json` y ya borrados del repo: `codegraph-reminder`,
 concisión del resume, salió el 2026-09-29 y `logs/response-meter.jsonl` crecía
 sin lector).
 La cobertura de cada evento de hook de Claude Code (cableado, descartado y
-motivo) está en [`docs/hooks-coverage.md`](../docs/hooks-coverage.md). El dispatcher de skills (`cockpit/skill-lazy/routing-dispatcher.v2.js`
-y `v3.js`) sigue en el repo pero no está registrado como hook desde el
-2026-09-29.
+motivo) está en [`docs/hooks-coverage.md`](../docs/hooks-coverage.md). El dispatcher de skills v2/v3 (desconectado desde el 2026-09-29) y los hooks de
+la ruta densa se borraron el 2026-11-14.
 
 Siguen en `hooks/scripts/` sin registrar como hook de Claude Code:
 
-- `ensure-qdrant.js`, `memory-warmup.js` (con `memory-warm-models.js`) y
-  `qdrant-mirror-sync.js`: para volver al recall híbrido si se reactiva el
-  denso (ver §Memoria del `CLAUDE.md` del repo).
 - `session-summarize-previous.js`: lo lanza `session-end-bitacora.js`.
-- `session-end-summary.js`: solo lo empaqueta el plugin de Cowork.
 - `research-mcp.js`: servidor MCP, no hook.
-- `project-roster-context.js`: SessionStart que no está en `settings.json`;
-  solo lo ejercita su selftest.
 
 ## Nota de mantenimiento
 

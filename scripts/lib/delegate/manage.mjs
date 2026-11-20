@@ -15,7 +15,8 @@
  * - `gc [--days N] [--dry-run]`: borra (como `clean`) las delegaciones
  *   terminadas hace mas de N dias (2 por defecto) que ya no guardan trabajo:
  *   fusionadas, descartadas o sin ninguna rama. Una rama conservada (verde o
- *   para revisar) sin desenlace no se toca; se avisa. `run` lo lanza al empezar
+ *   para revisar) sin desenlace no se toca; se avisa. Tampoco un worktree
+ *   conservado sin commit (excepcion de git tras el motor) con cambios. `run` lo lanza al empezar
  *   para que no se acumulen. Las ramas se comprueban en el repo: meta.json puede
  *   nombrar una que ya no existe.
  */
@@ -78,6 +79,17 @@ function settleQuietly(id, m) {
   }
 }
 
+/**
+ * Worktrees conservados sin commit (excepcion de git tras el motor, attempt.mjs)
+ * que siguen en disco y guardan cambios o no se pudieron contar: trabajo sin
+ * revisar que no tiene rama que lo proteja.
+ */
+function reviewWorktrees(m) {
+  return (m.attempts || [])
+    .filter((a) => a.kept && !a.branch && a.review && a.review.filesChanged !== 0 && a.wt && existsSync(a.wt))
+    .map((a) => a.wt);
+}
+
 function gcEntry(id, branchAlive) {
   const result = join(delegationsDir(), id, 'result.json');
   let winner = null;
@@ -86,6 +98,7 @@ function gcEntry(id, branchAlive) {
     const m = readMeta(id);
     winner = m.winner && branchAlive(m.repo, m.winner) ? m.winner : null;
     kept = (m.attempts || []).filter((a) => a.kept && a.branch && branchAlive(m.repo, a.branch)).map((a) => a.branch);
+    kept = [...kept, ...reviewWorktrees(m)];
     if (!finalOf(id)) settleQuietly(id, m);
   } catch (e) {
     console.error(`gc: meta.json de ${id} no se puede leer (${e.message}); sin ramas que proteger`);
@@ -115,7 +128,7 @@ export function cmdGc(opts = {}, { quiet = false } = {}) {
   const kept = entries.filter((e) => holdsWork(e) && !e.final && !doomed.includes(e.id));
   if (!quiet || doomed.length) {
     const verb = opts['dry-run'] ? 'se borrarian' : 'borradas';
-    console.log(`gc: ${doomed.length} delegacion(es) ${verb}${kept.length ? `; ${kept.length} con rama sin fusionar ni descartar: ${kept.map((e) => e.id).join(', ')}` : ''}.`);
+    console.log(`gc: ${doomed.length} delegacion(es) ${verb}${kept.length ? `; ${kept.length} con rama o worktree sin fusionar ni descartar: ${kept.map((e) => e.id).join(', ')}` : ''}.`);
   }
   return 0;
 }
@@ -141,7 +154,9 @@ export function cmdList() {
     const final = finalOf(id) || (squash ? `${SQUASH_PREPARED} (${squash})` : null);
     const state = res ? `exit ${res.code}` : 'en curso o abortada';
     const engines = (m.attempts || []).filter((a) => a.outcome !== 'skipped').map((a) => `${a.engine}:${a.reason ? `${a.outcome}[${a.reason}]` : a.outcome}`).join(' ');
-    console.log(`${id} · ${state}${final ? ` · ${final}` : ''} · ${winnerLabel(m, branchAlive)} · ${engines || '-'} · ${m.title}`);
+    const review = reviewWorktrees(m);
+    const pending = review.length ? ` · worktree sin commit para revisar a mano: ${review.join(', ')}` : '';
+    console.log(`${id} · ${state}${final ? ` · ${final}` : ''} · ${winnerLabel(m, branchAlive)}${pending} · ${engines || '-'} · ${m.title}`);
   }
   return 0;
 }

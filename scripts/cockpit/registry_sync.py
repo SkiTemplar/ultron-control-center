@@ -471,33 +471,6 @@ def cmd_validate_routes(_args) -> int:
     return 1 if violations else 0
 
 
-def _cmd_include_agents(args) -> int:
-    """Task 9: Rebuild agent manifest and report agents present/absent."""
-    import subprocess as _sp
-    agent_script = Path(__file__).parent / "agent_manifest.py"
-    if not agent_script.exists():
-        print("[registry_sync] agent_manifest.py not found in cockpit dir")
-        return 1
-    dry_run = getattr(args, "dry_run", False)
-    if dry_run:
-        print("[registry_sync --include-agents] dry-run — would call: agent_manifest.py rebuild + status")
-        return 0
-    try:
-        r1 = _sp.run([sys.executable, str(agent_script), "rebuild"],
-                     capture_output=True, text=True, timeout=30)
-        if r1.returncode == 0:
-            print(r1.stdout.strip())
-        else:
-            print(f"[WARNING] rebuild exited {r1.returncode}: {r1.stderr.strip()[:200]}")
-        r2 = _sp.run([sys.executable, str(agent_script), "status"],
-                     capture_output=True, text=True, timeout=30)
-        print(r2.stdout.strip())
-        return 0
-    except (OSError, _sp.TimeoutExpired) as e:
-        print(f"[registry_sync] include-agents failed: {e}")
-        return 1
-
-
 def _cmd_auto_discover(_args) -> int:
     """S4: Scan ~/.claude/skills/*/SKILL.md for KTP frontmatter.
     Appends new entries to ~/.ultron/skills.manifest.yaml (source: auto-discover).
@@ -839,9 +812,6 @@ def main() -> int:
     sub.add_parser("health",           help="Registry health score  [alias: h]")
     sub.add_parser("validate-routes",  help="Validate route_quality.json for anomalies")
 
-    agents_p = sub.add_parser("include-agents",
-                               help="Rebuild agent manifest and report agents present/absent")
-    agents_p.add_argument("--dry-run", action="store_true")
 
     sub.add_parser("auto-discover",
                    help="Scan ~/.claude/skills/*/SKILL.md for KTP frontmatter, "
@@ -849,8 +819,6 @@ def main() -> int:
 
     args = p.parse_args()
 
-    if args.cmd == "include-agents":
-        return _cmd_include_agents(args)
 
     if args.cmd == "auto-discover":
         return _cmd_auto_discover(args)

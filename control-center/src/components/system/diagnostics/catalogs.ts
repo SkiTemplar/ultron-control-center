@@ -97,17 +97,6 @@ export const COMMON_ERRORS: CommonError[] = [
     ],
   },
   {
-    id: "qdrant-binary-missing",
-    category: "AI / Claude",
-    severity: "info",
-    title: "No se encuentra el binario de Qdrant",
-    symptom: "El recall denso (vectores E5 en Qdrant) no está disponible. Solo importa con el denso encendido: con ULTRON_DENSE=0 el recall es sparse con FTS5 y Qdrant no hace falta.",
-    checkId: "qdrant-binary-missing",
-    primaryFixKind: null,
-    primaryFixLabel: "Descargar qdrant.exe",
-    extraFixes: [],
-  },
-  {
     id: "plugins-out-of-date",
     category: "Plugins",
     severity: "info",

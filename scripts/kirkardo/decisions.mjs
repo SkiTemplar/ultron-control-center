@@ -73,23 +73,23 @@ function userEnvVar(name) {
 
 const showVal = (v) => (v === undefined ? "(no legible)" : v === null ? "(ausente)" : v);
 
-// PURA. Denso apagado (2026-09-28): ULTRON_DENSE y ULTRON_RERANK a 0 en el env de
-// settings.json y en las variables de usuario, sin override en el entorno del
-// harness, y el binario desplegado confirma qdrant.dense=false en el doctor.
-export function denseOffStatus({ settingsEnv, userEnv, processEnv, doctorDense }) {
-  const ok = [];
+// PURA. Ruta densa retirada (apagada el 2026-09-28, borrada el 2026-11-14): el
+// Cargo.toml no declara fastembed ni la feature qdrant y no quedan los modulos
+// densos en src-tauri. Las variables ULTRON_DENSE/ULTRON_RERANK ya no mandan:
+// sin el codigo, ningun valor lo reactiva.
+export function denseOffStatus({ cargoToml, denseModules }) {
   const bad = [];
-  for (const k of ["ULTRON_DENSE", "ULTRON_RERANK"]) {
-    const s = settingsEnv?.[k];
-    (isOffValue(s) ? ok : bad).push(`settings.env.${k}=${showVal(s ?? null)}`);
-    const u = userEnv?.[k];
-    (isOffValue(u) ? ok : bad).push(`HKCU.${k}=${showVal(u)}`);
-    const p = processEnv?.[k];
-    if (p !== undefined && !isOffValue(p)) bad.push(`entorno del harness ${k}=${p}`);
+  if (cargoToml === null || cargoToml === undefined) bad.push("Cargo.toml no legible");
+  else {
+    if (/^\s*fastembed\s*=/m.test(cargoToml)) bad.push("Cargo.toml declara fastembed");
+    if (/^\s*qdrant\s*=/m.test(cargoToml)) bad.push("Cargo.toml declara la feature qdrant");
   }
-  (doctorDense === false ? ok : bad).push(`doctor qdrant.dense=${doctorDense ?? "(sin dato)"}`);
-  return { inForce: bad.length === 0, evidence: (bad.length ? bad : ok).join(", ") };
+  for (const m of denseModules ?? []) bad.push(`modulo denso presente: ${m}`);
+  const ok = "Cargo.toml sin fastembed ni feature qdrant y sin modulos densos en src-tauri";
+  return { inForce: bad.length === 0, evidence: bad.length ? bad.join(", ") : ok };
 }
+
+const DENSE_MODULES = ["qdrant.rs", "qdrant_embed.rs", "qdrant_rerank.rs", "memory/qdrant_index.rs", "memory/doctor_dense.rs"];
 
 // PURA. Orchestrate ligero (2026-09-28/29): nadie fija ULTRON_ORCHESTRATE=full y
 // el hook real, ante un prompt tecnico, no emite orchestration-context ni
@@ -147,21 +147,20 @@ export const DECISIONS = {
     reason:
       "denso apagado (E5 + reranker + Qdrant): ULTRON_DENSE=0 y ULTRON_RERANK=0; recall solo FTS5 (golden recall@8 0,131 aceptado)",
     reactivate:
-      "quitar ULTRON_DENSE/ULTRON_RERANK del env de settings.json y de las variables de usuario, rehabilitar UltronQdrant y los hooks ensure-qdrant/memory-warmup/qdrant-mirror-sync",
+      "la ruta densa se retiro del repo el 2026-11-14 (feature qdrant, fastembed, modulos de Rust, hooks y scripts de Qdrant): reactivarla es recuperarla del historial de git (ultimo commit con ella: 58cb96147)",
     status() {
-      const settingsEnv = readJSON(SETTINGS_JSON)?.env ?? {};
-      const userEnv = { ULTRON_DENSE: userEnvVar("ULTRON_DENSE"), ULTRON_RERANK: userEnvVar("ULTRON_RERANK") };
-      const pre = denseOffStatus({ settingsEnv, userEnv, processEnv: process.env, doctorDense: false });
-      // Si la configuracion ya lo desmiente no hace falta preguntar al binario.
-      const doctorDense = pre.inForce ? doctorCheck("qdrant")?.data?.dense : undefined;
-      return denseOffStatus({ settingsEnv, userEnv, processEnv: process.env, doctorDense });
+      const cargoPath = join(CC_SRC, "..", "src-tauri", "Cargo.toml");
+      const cargoToml = existsSync(cargoPath) ? readFileSync(cargoPath, "utf8") : null;
+      const srcDir = join(CC_SRC, "..", "src-tauri", "src");
+      const denseModules = DENSE_MODULES.filter((m) => existsSync(join(srcDir, m)));
+      return denseOffStatus({ cargoToml, denseModules });
     },
   },
   "orchestrate-light": {
     date: "2026-09-28",
     reason:
       "memory-orchestrate en modo ligero (solo tono): sin recall, routing ni directivas de delegacion por prompt; la memoria entra por el resume de arranque y la bitacora (memory_recall fuera del MCP desde el 2026-10-03)",
-    reactivate: "ULTRON_ORCHESTRATE=full (env de settings.json o variable de usuario)",
+    reactivate: "el modo completo se borro del hook el 2026-11-14: recuperarlo del historial de git; ULTRON_ORCHESTRATE=full ya no lo activa",
     status() {
       const settingsEnv = readJSON(SETTINGS_JSON)?.env ?? {};
       const userEnv = { ULTRON_ORCHESTRATE: userEnvVar("ULTRON_ORCHESTRATE") };
@@ -172,7 +171,7 @@ export const DECISIONS = {
     date: "2026-09-29",
     reason:
       "dispatcher de skills v2/v3 desconectado de settings.json y hooks/manifest.json (commit 7ff38577): nada inyecta SKILL.md por prompt; las skills se cargan bajo demanda (/skill, pool por proyecto)",
-    reactivate: "volver a cablear routing-dispatcher.v2/v3.js en settings.json (UserPromptSubmit) y regenerar hooks/manifest.json",
+    reactivate: "el dispatcher v2/v3 se borro el 2026-11-14: reactivarlo es recuperarlo del historial de git, cablearlo en settings.json (UserPromptSubmit) y regenerar hooks/manifest.json",
     status() {
       const sources = [
         { label: "settings.json", text: hooksText(SETTINGS_JSON) },
@@ -201,12 +200,11 @@ Object.assign(DECISIONS, {
   },
   "cowork-retired": {
     date: "2026-10-28",
-    reason: "plugin ultron-memory-cowork borrado: session-end-summary.js ya no lo empaqueta nadie; los candidatos por sesion salen de session-end-bitacora.js y lesson-distill.js",
-    reactivate: "volver a crear plugins/ultron-memory-cowork o cablear session-end-summary.js en el manifest",
+    reason: "plugin ultron-memory-cowork borrado y session-end-summary.js retirado (2026-11-14): los candidatos por sesion salen de session-end-bitacora.js y lesson-distill.js",
+    reactivate: "volver a crear plugins/ultron-memory-cowork con un hook de resumen de cierre",
     status() {
       const plugin = existsSync(join(REPO, "plugins", "ultron-memory-cowork"));
-      const wired = /session-end-summary/.test(hooksText(HOOKS_MANIFEST) ?? "");
-      return { inForce: !plugin && !wired, evidence: `plugins/ultron-memory-cowork=${plugin ? "presente" : "ausente"}, session-end-summary en el manifest=${wired}` };
+      return { inForce: !plugin, evidence: `plugins/ultron-memory-cowork=${plugin ? "presente" : "ausente"}` };
     },
   },
   "memory-browser-retired": {

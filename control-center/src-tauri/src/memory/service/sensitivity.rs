@@ -18,7 +18,7 @@ use super::super::model::{
 };
 use super::super::sqlite_store as store;
 use super::super::MemoryError;
-use super::{sync_index, MemoryService};
+use super::MemoryService;
 
 /// Marcador que deja `redact_pii` en lugar de un teléfono.
 pub const PHONE_MARKER: &str = "[REDACTED_PHONE]";
@@ -105,7 +105,7 @@ pub fn restore_title_date(title: &str, created_at_ms: i64) -> Option<String> {
 impl MemoryService {
     /// Baja a `Internal` los items activos Secret cuyo único marcador de
     /// redacción es `[REDACTED_PHONE]`. Con `dry_run` solo cuenta. Cada cambio
-    /// deja evento `updated` con motivo y re-sincroniza el índice denso.
+    /// deja evento `updated` con motivo.
     pub fn secret_backfill(
         dry_run: bool,
         actor: Actor,
@@ -165,7 +165,6 @@ impl MemoryService {
                 .with_after(serde_json::to_string(&updated).unwrap_or_default());
             match store::insert_item_with_event(&conn, &updated, &ev) {
                 Ok(()) => {
-                    sync_index(&updated);
                     if downgrade {
                         result.downgraded.push(updated.id.clone());
                     }

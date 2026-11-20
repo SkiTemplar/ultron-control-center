@@ -58,7 +58,6 @@ SKILL_ROOT = CLAUDE_HOME / "skills" / "ultron"
 
 ALERTS_FILE = ULTRON_HOME / "alerts.jsonl"
 CONTEXT_MD = ULTRON_HOME / ".tmp" / "context.md"
-BRAIN_DB = ULTRON_HOME / "brain_index" / "index.db"
 MCP_HEALTH = ULTRON_HOME / ".tmp" / "mcp-health.json"
 SETTINGS_JSON = CLAUDE_HOME / "settings.json"
 MANIFEST_CACHE = ULTRON_HOME / "manifest.cache.json"
@@ -470,67 +469,6 @@ def _check_hook_scripts_missing(rules: dict[str, Any]) -> list[Finding]:
             fix_command=None,
         ))
     return findings
-
-
-# ---------------------------------------------------------------------------
-# Detections (e/f): staleness
-# ---------------------------------------------------------------------------
-
-
-def _check_l0_stale(rules: dict[str, Any]) -> list[Finding]:
-    """Detection (e): context.md older than rules.staleness.l0_max_hours."""
-    regen_cmd = [sys.executable, str(_COCKPIT_DIR / "context_primer.py"), "generate"]
-    if not CONTEXT_MD.exists():
-        return [Finding(
-            id="stale:l0:missing",
-            category="stale",
-            severity=SEVERITY_WARN,
-            summary="L0 context.md is missing",
-            detail=f"Expected: {CONTEXT_MD}\nRun context_primer.py generate to recreate.",
-            fix_action="regen_context",
-            fix_command=regen_cmd,
-        )]
-    age_h = _file_age_hours(CONTEXT_MD) or 0.0
-    limit = float(rules.get("staleness", {}).get("l0_max_hours", 4))
-    if age_h <= limit:
-        return []
-    return [Finding(
-        id="stale:l0",
-        category="stale",
-        severity=SEVERITY_WARN,
-        summary=f"L0 context.md is {age_h:.1f}h old (limit {limit}h)",
-        detail=f"Path: {CONTEXT_MD}\nRun context_primer.py generate to refresh.",
-        fix_action="regen_context",
-        fix_command=regen_cmd,
-    )]
-
-
-def _check_ztmsi_stale(rules: dict[str, Any]) -> list[Finding]:
-    """Detection (f): brain index DB older than rules.staleness.ztmsi_max_hours."""
-    build_cmd = [sys.executable, str(_COCKPIT_DIR / "brain_index.py"), "build"]
-    if not BRAIN_DB.exists():
-        return [Finding(
-            id="stale:ztmsi:missing",
-            category="stale",
-            severity=SEVERITY_INFO,
-            summary="Brain index database is missing",
-            detail=f"Expected: {BRAIN_DB}\nRun brain_index.py build to create it.",
-            fix_action="rebuild_index",
-            fix_command=build_cmd,
-        )]
-    age_h = _file_age_hours(BRAIN_DB) or 0.0
-    limit = float(rules.get("staleness", {}).get("ztmsi_max_hours", 4))
-    if age_h <= limit:
-        return []
-    return [Finding(
-        id="stale:ztmsi",
-        category="stale",
-        severity=SEVERITY_INFO,
-        summary=f"Brain index is {age_h:.1f}h old (limit {limit}h)",
-        detail=f"Path: {BRAIN_DB}\nRun brain_index.py update for incremental refresh.",
-        fix_action="update_index",
-        fix_command=[sys.executable, str(_COCKPIT_DIR / "brain_index.py"), "update"],
-    )]
 
 
 # ---------------------------------------------------------------------------
@@ -1363,8 +1301,6 @@ _ALL_DETECTORS = (
     _check_empty_dirs_and_orphan_files,
     _check_skill_drift,
     _check_hook_scripts_missing,
-    _check_l0_stale,
-    _check_ztmsi_stale,
     _check_session_logs,
     _check_backup_snapshots,
     _check_telemetry,

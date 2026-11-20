@@ -18,7 +18,7 @@ export const ULTRON = join(HOME, ".ultron");
 // Raiz del CODIGO medido (2026-10-23, ronda 2): el repo que contiene este
 // script, sea el checkout principal (== ULTRON) o un worktree. El estado vivo
 // (bin/, logs/, brain.db, cockpit de produccion, .codegraph) sigue en ULTRON;
-// el codigo (control-center, hooks, scripts, skill-lazy, CI) sale de REPO. Sin
+// el codigo (control-center, hooks, scripts, CI) sale de REPO. Sin
 // esto, una corrida desde un worktree acababa midiendo el codigo del checkout
 // principal.
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -31,10 +31,6 @@ export const COCKPIT = join(ULTRON, "cockpit");
 export const HOOKS_SCRIPTS = join(REPO, "hooks", "scripts");
 export const HOOKS_MANIFEST = join(REPO, "hooks", "manifest.json");
 export const SETTINGS_JSON = join(CLAUDE, "settings.json");
-export const SKILL_LAZY = join(REPO, "cockpit", "skill-lazy");
-// Estado vivo (ignorado por git): el de ~/.ultron, no el del repo medido.
-export const SKILLS_REGISTRY_COCKPIT = join(COCKPIT, "skill-lazy", "skills-registry.json");
-const SKILLS_REGISTRY_ROOT = join(ULTRON, "skills-registry.json");
 export const ZONES_JSON = join(REPO, "cockpit", "ai-router", "zones.json");
 export const METRICS_JSON = join(COCKPIT, "ai-router", "metrics.json");
 const GOLDEN_LABELS_V1 = join(COCKPIT, "memory-rework", "evals", "golden_labels.json");

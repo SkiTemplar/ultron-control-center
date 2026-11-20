@@ -22,7 +22,7 @@ pub struct LabeledQueryResult {
     /// Precision at the fixed cutoff k=3 (additional to the precision@k in `metrics`).
     /// Useful for cat19.4: a top-3 slot is the prime real estate in most recall UIs.
     pub precision_at_3: f64,
-    /// `true` when `recall_pack` errored (Qdrant/E5 offline); metrics are all-zero.
+    /// `true` when `recall_pack` errored (brain.db unavailable); metrics are all-zero.
     pub degraded: bool,
 }
 
@@ -86,23 +86,15 @@ impl LabeledGoldenReport {
 /// Run the EXTERNAL hand-labeled golden set through the live recall pipeline.
 ///
 /// Loads `path` (must be an absolute path to a `golden_labels_draft.json`-style
-/// file with schema `{ "labeled": [...] }`), runs `build_trace` (quality path
-/// dense+rerank by default; ULTRON_EVAL_DENSE/ULTRON_EVAL_RERANK override) for
-/// each query, and returns the aggregate ranking-quality report.
+/// file with schema `{ "labeled": [...] }`), runs `build_trace` (the same FTS5
+/// path as the hook) for each query, and returns the aggregate ranking-quality
+/// report.
 ///
 /// FAIL-SAFE: a missing/invalid file degrades to `LabeledGoldenReport::degraded`.
 /// Individual `build_trace` failures degrade ONLY that query to an empty ranking.
 #[must_use]
 pub fn run_labeled_golden(path: &str, k: usize) -> LabeledGoldenReport {
-    // Knobs por env (histórico): ULTRON_EVAL_DENSE=0 / ULTRON_EVAL_RERANK=0
-    // permiten medir el pack del hot path con el MISMO oráculo.
-    let eval_dense = std::env::var("ULTRON_EVAL_DENSE")
-        .map(|v| v != "0")
-        .unwrap_or(true);
-    let eval_rerank = std::env::var("ULTRON_EVAL_RERANK")
-        .map(|v| v != "0")
-        .unwrap_or(true);
-    run_labeled_golden_with(path, k, eval_dense, eval_rerank)
+    run_labeled_golden_on(path, k)
 }
 
 /// Quita de los grupos del oráculo los ids cuyo tipo está vetado en el recall.
@@ -175,27 +167,7 @@ fn retener_recuperables(
     (grupos, inactivos)
 }
 
-/// Variante con knobs EXPLÍCITOS (2026-08-10): el doctor mide el oráculo sin
-/// rerank y no debe depender de (ni mutar) el env del proceso para hacerlo.
-#[must_use]
-pub fn run_labeled_golden_with(
-    path: &str,
-    k: usize,
-    eval_dense: bool,
-    eval_rerank: bool,
-) -> LabeledGoldenReport {
-    // Pre-check infra (2026-08-10): con Qdrant caído este runner mediría el
-    // modo sparse degradado y reportaría el 0.151 del audit 08-09 como si
-    // fuera regresión real. Infra caída = degraded con causa, no score.
-    // Con el denso apagado a proposito (`ULTRON_DENSE=0`) Qdrant no tiene que
-    // estar vivo: se mide el modo sparse, que es el que esta en produccion.
-    if crate::qdrant::dense_enabled() && !crate::qdrant::qdrant_healthy_cached() {
-        return LabeledGoldenReport::degraded(
-            path,
-            k,
-            "infra_down: Qdrant no responde /healthz — eval omitido (no es regresión de calidad)",
-        );
-    }
+fn run_labeled_golden_on(path: &str, k: usize) -> LabeledGoldenReport {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
@@ -239,31 +211,24 @@ pub fn run_labeled_golden_with(
         let (groups, inactivos) = filtrar_tipos_vetados(label.groups());
         dropped_inactive += inactivos;
 
-        // build_trace directo (recall_pack fija dense=true): .injected son las
-        // mismas entries que el pack, con dense/rerank gobernados por los knobs.
+        // build_trace directo: .injected son las mismas entries que el pack.
         // Con el proyecto de la query (golden v2): el hook recuerda siempre en
         // el ámbito del proyecto del turno; sin él se medía otro camino.
         let project = label.project_id.as_deref();
-        let (retrieved_ids, degraded_query) = match build_trace_diagnostic(
-            &label.query,
-            k,
-            project,
-            false,
-            eval_dense,
-            eval_rerank,
-        ) {
-            Ok(t) => {
-                let ids: Vec<String> = t.injected.into_iter().map(|e| e.canonical_id).collect();
-                (ids, false)
-            }
-            Err(e) => {
-                eprintln!(
-                    "[evals/labeled] build_trace failed for '{}': {e}",
-                    label.query
-                );
-                (Vec::new(), true)
-            }
-        };
+        let (retrieved_ids, degraded_query) =
+            match build_trace_diagnostic(&label.query, k, project, false) {
+                Ok(t) => {
+                    let ids: Vec<String> = t.injected.into_iter().map(|e| e.canonical_id).collect();
+                    (ids, false)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[evals/labeled] build_trace failed for '{}': {e}",
+                        label.query
+                    );
+                    (Vec::new(), true)
+                }
+            };
 
         let (synth, relevant) =
             crate::memory::eval_metrics::collapse_to_groups(&retrieved_ids, &groups);

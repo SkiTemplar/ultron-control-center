@@ -10,7 +10,7 @@
 //! workflow-subagent — resultado" x561, "Subagente unknown — resultado" x269).
 //! Ese bloque copaba el fanout y salía en el recall de prompts con los que no
 //! tenía nada que ver, empujando fuera a las decisiones reales. La exclusión se
-//! aplica en la FUENTE de ambas ramas (FTS5 y Qdrant), no al ensamblar el pack:
+//! aplica en la FUENTE (la consulta FTS5), no al ensamblar el pack:
 //! filtrar al final dejaría a los excluidos ocupando igualmente los 30-60
 //! slots del fanout y el pack saldría vacío.
 //!

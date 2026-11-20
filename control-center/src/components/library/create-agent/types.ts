@@ -1,4 +1,5 @@
 import type { TargetScope } from "../../../types";
+import type { AgentModelId } from "../creatorTemplates";
 
 export type Props = {
   defaultScope?: TargetScope;
@@ -9,4 +10,4 @@ export type Props = {
 };
 
 export type Step = 1 | 2 | 3 | 4;
-export type ModelChoice = "" | "haiku" | "sonnet" | "opus";
+export type ModelChoice = AgentModelId;

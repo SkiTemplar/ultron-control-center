@@ -16,7 +16,7 @@ Run every item before following `docs/RELEASE-PROCESS.md` to cut the tag.
 
 ## 2. Automated checks — all must be green
 
-- [ ] `cargo test` passes (all tests, including `--features finance qdrant`).
+- [ ] `cargo test` passes (all tests, including `--features finance`).
 - [ ] `cargo clippy -- -D warnings` exits 0.
 - [ ] `cargo fmt --check` exits 0 (no formatting drift).
 - [ ] TypeScript check: `cd control-center && npx tsc --noEmit` exits 0.
@@ -32,7 +32,7 @@ Run every item before following `docs/RELEASE-PROCESS.md` to cut the tag.
 ## 4. App build (local)
 
 - [ ] Close the running ULTRON instance (the binary is locked while the app is open).
-- [ ] Build from `control-center/` with `npm run build:local` (Finance + qdrant features).
+- [ ] Build from `control-center/` with `npm run build:local` (Finance feature).
 - [ ] Binary exits 0, no Rust warnings in the output.
 - [ ] Memory sidecar health: `bin/ultron-memory.exe doctor` passes all checks.
 
@@ -41,7 +41,7 @@ Run every item before following `docs/RELEASE-PROCESS.md` to cut the tag.
 - [ ] Launch the freshly built binary. App opens without crash or console errors.
 - [ ] Settings → About shows the expected version number.
 - [ ] AI Router panel is reachable and at least one zone shows a valid primary.
-- [ ] Dashboard → "Sistema de memoria" shows active items, and `bin/ultron-memory.exe recall "qdrant embeddings"` returns results.
+- [ ] Dashboard → "Sistema de memoria" shows active items, and `bin/ultron-memory.exe recall "memoria"` returns results.
 - [ ] Kanban board loads without JS exceptions.
 
 ## 6. Version numbers

@@ -43,6 +43,31 @@ await run('el enlace --link apunta al repo dentro del worktree', () => {
   assert.equal(readFileSync(join(meta.wt, 'deps', 'lib.txt'), 'utf8'), 'dependencia\n');
 });
 
+await run('meta.json: sesion de ULTRON e intento en curso (solo mientras corre)', () => {
+  // El check corre dentro del intento: copia el meta.json de ese momento.
+  const snap = join(ROOT, 'snap-meta.mjs');
+  const during = join(ROOT, 'meta-durante.json');
+  writeFileSync(snap, [
+    "import { copyFileSync, readdirSync, statSync } from 'node:fs';",
+    "import { join } from 'node:path';",
+    `const root = ${JSON.stringify(DELEG)};`,
+    "const last = readdirSync(root).map((d) => join(root, d, 'meta.json')).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];",
+    `copyFileSync(last, ${JSON.stringify(during)});`,
+  ].join('\n'));
+  const args = ['run', '--engine', 'codex', '--brief', BRIEF, '--check', `node "${snap}"`];
+  const r = delegate(args, 'write', { ULTRON_SESION_ID: 'ses-test_1' });
+  assert.equal(r.code, 0, r.out);
+  const live = JSON.parse(readFileSync(during, 'utf8'));
+  assert.deepEqual([live.session, live.current.attempt, live.current.engine, live.attempts.length], ['ses-test_1', 1, 'codex', 0]);
+  assert.ok(live.current.model, 'el intento en curso lleva el modelo');
+  const meta = JSON.parse(readFileSync(join(DELEG, idOf(r.out), 'meta.json'), 'utf8'));
+  assert.deepEqual([meta.session, meta.current, meta.timeoutS], ['ses-test_1', null, 1800]);
+  assert.equal(meta.attempts[0].model, live.current.model);
+  // Caso negativo: un id que no es un nombre simple no se guarda.
+  const bad = delegate(args, 'write', { ULTRON_SESION_ID: '../otra' });
+  assert.equal(JSON.parse(readFileSync(join(DELEG, idOf(bad.out), 'meta.json'), 'utf8')).session, null);
+});
+
 await run('ledger: una linea por intento con los campos del contrato y repo sin ruta', () => {
   const [e] = ledgerOf(okId);
   const keys = ['ts', 'id', 'attempt', 'engine', 'runner', 'model', 'tier', 'outcome', 'skipReason', 'durationS', 'checkOk', 'filesChanged', 'costUsd', 'branch', 'title', 'repo'];

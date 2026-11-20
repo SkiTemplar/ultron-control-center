@@ -9,21 +9,18 @@
 //     (FTS5 term-OR): si la reformulación no comparte suficientes términos, el
 //     hit ni siquiera entra en el top-3 que se confirma.
 //
-// Este gate añade dos detectores INDEPENDIENTES sobre los vecinos RECIENTES del
-// mismo proyecto (o del mismo scope cuando el candidato no tiene proyecto):
-//   (a) TÍTULO normalizado (minúsculas, sin tildes, sin stopwords, tokens
-//       únicos y ordenados) idéntico, o con Jaccard de tokens >= 0,8;
-//   (b) COSENO E5 >= 0,92 entre los `searchable_text`, cuando hay embedding
-//       disponible (Qdrant vivo; el vector de la query se lo pide al daemon).
-// Cualquiera de los dos basta: (a) atrapa la reformulación cosmética, (b) la
-// reescritura con otras palabras. Los umbrales son altos a propósito — este
-// gate DESCARTA memoria, así que ante la duda deja pasar el candidato.
+// Este gate compara el TÍTULO normalizado (minúsculas, sin tildes, sin
+// stopwords, tokens únicos y ordenados) contra los vecinos RECIENTES del mismo
+// proyecto (o del mismo scope cuando el candidato no tiene proyecto): idéntico
+// o con Jaccard de tokens >= 0,8. Atrapa la reformulación cosmética. El umbral
+// es alto a propósito — este gate DESCARTA memoria, así que ante la duda deja
+// pasar el candidato. (El segundo detector, coseno de embeddings >= 0,92, se
+// retiró el 2026-11-14 con la ruta densa: la reescritura con otras palabras ya
+// no se detecta aquí.)
 //
 // Alcance real (mand. 13):
 //   - la ventana es de 24 h: una decisión repetida meses después vuelve a entrar
 //     (es señal de que sigue vigente, no ruido de una misma sesión);
-//   - (b) solo compara contra items ACTIVOS, que son los que Qdrant indexa; los
-//     candidatos PENDING del inbox solo pasan por (a);
 //   - las negaciones (`no`, `not`, `sin`, `nunca`, `never`) NO son stopwords: si
 //     lo fueran, "usar X" y "no usar X" normalizarían igual y el gate borraría
 //     precisamente la actualización que contradice al item viejo.
@@ -42,21 +39,14 @@ pub(crate) const PARAPHRASE_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 /// Jaccard mínimo entre los tokens significativos de los dos títulos.
 pub(crate) const PARAPHRASE_TITLE_JACCARD: f32 = 0.8;
 
-/// Coseno E5 mínimo entre `searchable_text` para considerar paráfrasis.
-pub(crate) const PARAPHRASE_COSINE: f32 = 0.92;
-
 /// Tokens significativos mínimos EN CADA LADO para que el gate de título opine.
 /// Con menos no hay masa léxica: dos títulos de una palabra pueden ser el mismo
 /// tema y hechos distintos.
 const MIN_TITLE_TOKENS: usize = 3;
 
-/// Vecinos densos que se piden a Qdrant. Una paráfrasis con coseno >= 0,92 está
-/// en las primerísimas posiciones o no está.
-const DENSE_NEIGHBOURS: u32 = 5;
-
 /// Tope de ACTIVOS recientes escaneados por el gate de título. Alcance real: si
-/// se tocaran más de 500 items en 24 h, el gate (a) vería solo los 500 más
-/// recientes (el (b) no depende de este tope, va por k-NN).
+/// se tocaran más de 500 items en 24 h, el gate vería solo los 500 más
+/// recientes.
 const ACTIVE_SCAN_LIMIT: usize = 500;
 
 /// Stopwords ES/EN. SIN negaciones (ver cabecera).
@@ -121,8 +111,7 @@ const NEGATIONS: &[&str] = &[
 /// ¿Los dos títulos NIEGAN distinto? Entonces no son paráfrasis, por muy alto
 /// que sea el solapamiento: "usar el daemon" y "no usar el daemon" difieren en
 /// un token y en todo lo demás son idénticos, así que el Jaccard los daría por
-/// el mismo hecho y el gate borraría justo la corrección. E5 tampoco separa bien
-/// la negación, así que este veto se aplica ANTES que el coseno. PURA.
+/// el mismo hecho y el gate borraría justo la corrección. PURA.
 fn negation_mismatch(ta: &[String], tb: &[String]) -> bool {
     let marks = |t: &[String]| -> HashSet<String> {
         t.iter()
@@ -133,7 +122,7 @@ fn negation_mismatch(ta: &[String], tb: &[String]) -> bool {
     marks(ta) != marks(tb)
 }
 
-/// Gate (a): ¿los dos títulos son el mismo título reformulado? PURA.
+/// Gate de título: ¿los dos títulos son el mismo título reformulado? PURA.
 pub(crate) fn titles_match(a: &str, b: &str) -> bool {
     let (ta, tb) = (title_tokens(a), title_tokens(b));
     if ta.is_empty() || tb.is_empty() || negation_mismatch(&ta, &tb) {
@@ -152,26 +141,15 @@ pub(crate) fn within_window(created_at: i64, now_ms: i64) -> bool {
 }
 
 /// Decisión PURA del gate para UN vecino: fuera de ventana nunca dispara;
-/// dentro, basta con el gate de título (a) o con el coseno (b). `cosine` es
-/// `None` cuando no hay embedding disponible para ese vecino. Una negación
-/// asimétrica veta AMBOS gates (ver [`negation_mismatch`]).
+/// dentro, decide el gate de título. Una negación asimétrica lo veta (ver
+/// [`negation_mismatch`]).
 pub(crate) fn is_paraphrase_of(
     cand_title: &str,
     other_title: &str,
     other_created_at: i64,
     now_ms: i64,
-    cosine: Option<f32>,
 ) -> bool {
-    if !within_window(other_created_at, now_ms) {
-        return false;
-    }
-    if negation_mismatch(&title_tokens(cand_title), &title_tokens(other_title)) {
-        return false;
-    }
-    if titles_match(cand_title, other_title) {
-        return true;
-    }
-    matches!(cosine, Some(score) if score >= PARAPHRASE_COSINE)
+    within_window(other_created_at, now_ms) && titles_match(cand_title, other_title)
 }
 
 /// ¿Comparten frontera de comparación? Con proyecto, el mismo proyecto; sin él,
@@ -188,7 +166,7 @@ pub(crate) fn same_bucket(
     }
 }
 
-/// Texto de título del candidato para el gate (a): el título propuesto y, si no
+/// Texto de título del candidato para el gate de título: el título propuesto y, si no
 /// lo hay, el summary (la captura no siempre rellena título).
 pub(crate) fn probe_title(cand: &MemoryCandidate) -> Option<&str> {
     cand.proposed_title
@@ -205,8 +183,8 @@ pub(crate) fn probe_title(cand: &MemoryCandidate) -> Option<&str> {
 /// PARÁFRASIS, o `None` si es nuevo. `Err` = no se pudo comprobar (el llamante
 /// marca `dedup-unverified` y deja el candidato en el inbox: fail-closed).
 ///
-/// Orden por coste: primero el gate de título sobre los recientes de SQLite
-/// (barato, sin red), y solo si no dispara se paga el k-NN denso.
+/// Gate de título sobre los ACTIVOS recientes y después sobre los PENDING del
+/// inbox, todo en SQLite y sin red.
 pub(super) fn find_paraphrase_dup(
     conn: &Connection,
     cand: &MemoryCandidate,
@@ -220,13 +198,10 @@ pub(super) fn find_paraphrase_dup(
     if let Some(id) = title_dup_in_active(conn, &probe, title, now)? {
         return Ok(Some(id));
     }
-    if let Some(id) = title_dup_in_pending(conn, &probe, &cand.id, title, now)? {
-        return Ok(Some(id));
-    }
-    Ok(cosine_dup_in_active(conn, &probe, title, now))
+    title_dup_in_pending(conn, &probe, &cand.id, title, now)
 }
 
-/// Gate (a) contra los items ACTIVOS recientes.
+/// Gate de título contra los items ACTIVOS recientes.
 fn title_dup_in_active(
     conn: &Connection,
     probe: &MemoryItem,
@@ -246,15 +221,14 @@ fn title_dup_in_active(
         let Some(other_title) = other_title.filter(|t| !t.trim().is_empty()) else {
             continue;
         };
-        if is_paraphrase_of(title, other_title, item.created_at, now, None) {
+        if is_paraphrase_of(title, other_title, item.created_at, now) {
             return Ok(Some(item.id));
         }
     }
     Ok(None)
 }
 
-/// Gate (a) contra los candidatos PENDING del inbox (que Qdrant no indexa, así
-/// que el gate (b) no los ve).
+/// Gate de título contra los candidatos PENDING del inbox.
 fn title_dup_in_pending(
     conn: &Connection,
     probe: &MemoryItem,
@@ -279,46 +253,11 @@ fn title_dup_in_pending(
         let Some(other_title) = probe_title(&pending) else {
             continue;
         };
-        if is_paraphrase_of(title, other_title, pending.created_at, now, None) {
+        if is_paraphrase_of(title, other_title, pending.created_at, now) {
             return Ok(Some(pending.id));
         }
     }
     Ok(None)
-}
-
-/// Gate (b): k-NN denso sobre los ACTIVOS (los únicos que Qdrant indexa). El
-/// veredicto final lo da [`is_paraphrase_of`], así que aquí también aplican la
-/// ventana de 24 h y el veto por negación. Best-effort — si la infra de búsqueda
-/// no está disponible devuelve `None` (el gate (a) ya corrió; no se bloquea la
-/// captura por no poder pagar el coseno).
-fn cosine_dup_in_active(
-    conn: &Connection,
-    probe: &MemoryItem,
-    title: &str,
-    now: i64,
-) -> Option<String> {
-    let text = probe.searchable_text();
-    if text.trim().is_empty() {
-        return None;
-    }
-    let project = probe.project_id.as_deref();
-    let hits =
-        crate::memory::qdrant_index::search_dense_scored_checked(&text, DENSE_NEIGHBOURS, project)?;
-    hits.into_iter()
-        .filter(|(_, score)| *score >= PARAPHRASE_COSINE)
-        .find_map(|(id, score)| {
-            let item = store::get_item(conn, &id).ok().flatten()?;
-            if !same_bucket(project, probe.scope, item.project_id.as_deref(), item.scope) {
-                return None;
-            }
-            let other_title = item
-                .title
-                .as_deref()
-                .or(item.summary.as_deref())
-                .unwrap_or("");
-            is_paraphrase_of(title, other_title, item.created_at, now, Some(score))
-                .then_some(item.id)
-        })
 }
 
 #[cfg(test)]

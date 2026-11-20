@@ -56,6 +56,7 @@ const { appendJsonl } = require('./lib/jsonl-log');
 const { findBinary } = require('./lib/ultron-memory-cli');
 // PERF-03: tail acotado del transcript (256 KiB) en vez de leerlo entero.
 const { readJsonlTail } = require('./lib/jsonl-tail');
+const { isSystemTurnPrompt } = require('./lib/system-turn');
 observe('stop-compress-session');
 
 // ---------------------------------------------------------------------------
@@ -540,8 +541,10 @@ function writeCompact(projectId, sessionId, cwd, turns, facts, aiUsed, date, cap
       if (e && e.code !== 'ENOENT') safeLog({ level: 'warn', msg: 'compact_previous_unreadable', sessionId });
     }
 
-    // human: prosa — primer prompt del usuario + resumen de turno
-    const firstUser = turns.find(t => t.role === 'user');
+    // human: prosa — primer prompt HUMANO + resumen de turno. Una notificación
+    // de tarea en segundo plano llega como turno de usuario y daba de tema el
+    // XML de la notificación (compact.json de 2026-11-14 en unrealprojects).
+    const firstUser = turns.find(t => t.role === 'user' && !isSystemTurnPrompt(t.text));
     const firstPrompt = firstUser ? firstUser.text.slice(0, 300) : '(sin prompt)';
     const human = `Sesión ${sessionId} del ${date} (${turns.length} turnos). Tema: ${firstPrompt}`;
 

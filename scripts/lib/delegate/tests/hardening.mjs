@@ -15,6 +15,7 @@ import { BRIEF, CONFIG_JSON, DELEG, ROOT, branchExists, check, delegate, git, id
 import { configTests } from './hardening-config.mjs';
 import { audit1101Tests } from './hardening-1101.mjs';
 import { round2Tests } from './hardening-round2.mjs';
+import { postEngineTests } from './post-engine.mjs';
 
 const writeConfig = (name, cfg) => {
   const p = join(ROOT, name);
@@ -151,16 +152,8 @@ async function logicTests() {
 }
 
 async function relayTests() {
-  await run('excepcion de git en un intento -> engine-fail en el ledger y el relevo sigue', () => {
-    const r = delegate(['run', '--tier', 'complex', '--brief', BRIEF, '--no-check'], 'codex:lock,*:write');
-    assert.equal(r.code, 0, r.out);
-    const id = idOf(r.out);
-    const lines = ledgerOf(id);
-    assert.deepEqual(lines.map((e) => [e.engine, e.outcome]), [['codex', 'engine-fail'], ['agy', 'ok']]);
-    assert.match(lines[0].reason, /^git: /);
-    assert.equal(branchExists(`delegate/${id}`), false, 'el intento roto no deja rama');
-    assert.equal(delegate(['clean', id]).code, 0);
-  });
+  // Excepciones de git antes y despues del motor: post-engine.mjs.
+  await postEngineTests();
 
   await run('--base inexistente -> exit 3 sin crear worktree', () => {
     const before = worktreeCount();

@@ -1,13 +1,12 @@
 // kirkardo/cats-21-22.mjs — categorias 21 (estado vivo) y 22 (delegacion).
 // Extraido de scripts/kirkardo-eval.mjs (2026-10-23) sin cambios de logica.
 
-import { execSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import * as P from "./predicates.mjs";
-import { AGENTS_DIR, BIN, HOOKS_SCRIPTS, ULTRON, ULTRON_MEM, cat, fileExists, fwd, run, spawnHook, spawnTracked } from "./core.mjs";
+import { BIN, HOOKS_SCRIPTS, ULTRON, ULTRON_MEM, cat, fileExists, fwd, run, spawnHook, spawnTracked } from "./core.mjs";
 import { ORCH_HOOK, sql20 } from "./hook-io.mjs";
 
 // ---------------------------------------------------------------------------
@@ -180,95 +179,8 @@ cat(21, "Estado vivo (codigo muerto: Stale/TTL/deprecation)", [
 // (2026-10-23) Con el orchestrate en modo ligero (default desde el 2026-09-28)
 // no hay directiva para ningun prompt: 22.1-22.4 daban rojo por "sin directiva" y
 // 22.5/22.6 verde por vacuidad. Todos quedan retirados mientras siga el ligero;
-// 22.7 mide el comportamiento que hay hoy. Con ULTRON_ORCHESTRATE=full vuelven.
-
-// route -> set de agentes validos. Espejo de orchestrator/ranking.rs
-// preferred_specialists(intent): el agente de la directiva es el top de
-// delegate_agents (boost + floor sobre ese set), asi que un agente fuera del
-// set para su route es incoherencia (route=rust => cpp-pro es valido por estar
-// listado como fallback; route=rust => python-pro NO lo seria).
-const ROUTE_VALID_AGENTS = {
-  security: ["security-auditor", "penetration-tester", "ultron-security", "code-reviewer"],
-  bug_fix: ["debugger", "error-detective", "qa-expert"],
-  performance: ["performance-engineer", "ultron-perf", "debugger"],
-  testing: ["test-automator", "qa-expert", "code-reviewer"],
-  refactor: ["refactoring-specialist", "ultron-refactor", "code-reviewer"],
-  architecture_review: ["architect-reviewer", "microservices-architect", "cloud-architect", "ultron-arch"],
-  feature: ["architect-reviewer", "fullstack-developer", "code-reviewer"],
-  research: ["ai-engineer", "llm-architect", "architect-reviewer"],
-  database: ["postgres-pro", "sql-pro", "database-administrator"],
-  rust: ["rust-engineer", "cpp-pro"],
-  python: ["python-pro", "backend-developer"],
-  typescript: ["typescript-pro", "javascript-pro", "frontend-developer"],
-  golang: ["golang-pro", "backend-developer"],
-  csharp: ["csharp-developer", "backend-developer"],
-  ml: ["ml-engineer", "mlops-engineer", "ai-engineer"],
-  data_eng: ["data-engineer", "database-administrator"],
-  devops: ["devops-engineer", "deployment-engineer", "kubernetes-specialist", "docker-expert"],
-  docker: ["devops-engineer", "deployment-engineer", "kubernetes-specialist", "docker-expert"],
-  cloud_infra: ["terraform-engineer", "cloud-architect", "kubernetes-specialist"],
-  api_design: ["api-designer", "backend-developer"],
-  llm: ["llm-architect", "ai-engineer", "ml-engineer"],
-};
-
-// Ejecuta el hook con stdin {prompt,cwd} y parsea la <orchestration-directive>
-// del additionalContext renderizado. Devuelve { ok, route, directive|null }.
-// (2026-08-17) Reintenta si la salida viene del CACHE stale (daemon frio en el
-// arranque de la corrida): el pack cacheado ya NO trae directiva (el hook la
-// anula porque es de otro prompt), asi que medirlo puntuaba la ventana de
-// warmup como fallo de delegacion (22.1/22.2/22.5 con detalles de otro prompt
-// o "sin-directiva"). El primer intento ya spawnea el daemon; 5s despues la
-// respuesta es del motor real. Max 3 intentos; si sigue cacheado se mide tal
-// cual (un daemon que nunca arranca SI es un fallo real).
-let _orchWarmed = false;
-function warmOrchestrateOnce() {
-  // Mismo patron que runGoldenEval con E5 (fidelidad bs60k6): el primer prompt
-  // TECNICO de una corrida paga la carga del cross-encoder (~1 GB) y vence el
-  // presupuesto del hook -> pack cacheado sin directiva. Eso mide la ventana de
-  // warmup, no la calidad de delegacion. Un orchestrate de sacrificio (no
-  // puntuado) calienta el CE; los checks miden el motor en regimen.
-  if (_orchWarmed) return;
-  _orchWarmed = true;
-  const input = JSON.stringify({
-    prompt: "warmup tecnico del harness: analiza el rendimiento del pipeline de recall hibrido",
-    cwd: ULTRON,
-    hook_event_name: "UserPromptSubmit",
-  });
-  // best-effort: un fallo del calentamiento lo vera el primer check que mida.
-  spawnHook(ORCH_HOOK, input, { realBin: true, timeout: 60000 });
-}
-
-function runOrchestrate(prompt, cwd) {
-  warmOrchestrateOnce();
-  const input = JSON.stringify({ prompt, cwd, hook_event_name: "UserPromptSubmit" });
-  let ac = "";
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) execSync("node -e \"setTimeout(()=>{},5000)\"", { timeout: 20000 });
-    // Sidecar real: en modo completo el hook cae al orchestrate --sparse si el
-    // daemon no contesta (lectura de brain.db, como en una sesion real).
-    const r = spawnHook(ORCH_HOOK, input, { realBin: true, timeout: 60000 });
-    if (r.error) return { ok: false, raw: String(r.error) };
-    const out = (r.stdout ?? "").trim();
-    try {
-      const j = JSON.parse(out);
-      ac = j.hookSpecificOutput?.additionalContext ?? j.additionalContext ?? "";
-    } catch {
-      return { ok: false, raw: out.slice(0, 160) };
-    }
-    if (!ac.includes("context pack CACHEADO")) break;
-  }
-  const route = (ac.match(/route="([^"]*)"/) || [])[1] ?? "";
-  const m = ac.match(/<orchestration-directive[^>]*>([\s\S]*?)<\/orchestration-directive>/);
-  if (!m) return { ok: true, route, directive: null, ac };
-  const body = m[1];
-  const field = (k) => (body.match(new RegExp("^" + k + ":\\s*(.*)$", "m")) || [])[1]?.trim() ?? "";
-  return {
-    ok: true,
-    route,
-    directive: { agent: field("agent"), model: field("modelo"), reason: field("motivo") },
-    ac,
-  };
-}
+// 22.7 mide el comportamiento que hay hoy. (2026-11-14) El modo completo se
+// retiro del hook y 22.1-22.6 se borraron con el.
 
 // Prompts de codigo NO-trivial cuyo intent mapea a un especialista de revision/
 // fix/refactor (los que hoy reciben haiku). Sin nombres de tecnologia para no
@@ -303,155 +215,11 @@ const META_PROMPTS = [
 // Negativos: charla / pregunta corta -> 0 directiva (caso negativo, mandamiento 7).
 const NEGATIVE_PROMPTS = ["hola que tal como estas hoy", "que hora es ahora mismo"];
 
-function orchHookAvailable() {
-  return fileExists(ORCH_HOOK) && fileExists(join(BIN, "ultron-memory.exe"));
-}
-
 // 2026-10-28 (P6): la cat 22 pasa a "Delegacion multimotor y relevo". Los
-// checks 22.1-22.6 (directivas de memory-orchestrate) siguen retirados por
-// orchestrate-light; 22.7 mide el modo ligero del hook y puntua en el area de
-// hooks. Los checks nuevos viven en cats-22-delegacion.mjs.
+// checks 22.1-22.6 (directivas de memory-orchestrate) se borraron con el modo
+// completo del hook (2026-11-14); 22.7 mide el modo ligero y puntua en el area
+// de hooks. Los checks nuevos viven en cats-22-delegacion.mjs.
 cat(22, "Delegacion multimotor y relevo", [
-  {
-    id: "22.1",
-    desc: "model_hint respeta calidad>tokens: review/fix/refactor/perf/test -> claude-sonnet-5-5|claude-opus-5-5, NUNCA haiku",
-    auto: true,
-    retiredBy: "orchestrate-light",
-    check() {
-      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta memory-orchestrate.js o bin/ultron-memory.exe (clon limpio/CI)" };
-      const QUALITY = new Set(["claude-sonnet-5-5", "claude-opus-5-5"]);
-      const bad = [], seen = [];
-      for (const [label, prompt] of HAIKU_INTENT_PROMPTS) {
-        const r = runOrchestrate(prompt, ULTRON);
-        if (!r.ok) return { pass: false, detail: `hook no emitio salida (${label}): ${r.raw ?? ""}` };
-        if (!r.directive) { bad.push(`${label}:sin-directiva`); continue; }
-        seen.push(`${label}=${r.directive.model}`);
-        if (!QUALITY.has((r.directive.model || "").toLowerCase())) bad.push(`${label}:${r.directive.model || "?"}`);
-      }
-      return {
-        pass: bad.length === 0,
-        detail: bad.length === 0
-          ? `${seen.length} intents de codigo con model_hint in {claude-sonnet-5-5,claude-opus-5-5}: ${seen.join(", ")}`
-          : `${bad.length}/${HAIKU_INTENT_PROMPTS.length} con modelo barato (contradice calidad>tokens): ${bad.join(", ")}`,
-      };
-    },
-  },
-  {
-    id: "22.2",
-    desc: "opus para razonamiento profundo: revision de arquitectura -> claude-opus-5-5 (jamas haiku)",
-    auto: true,
-    retiredBy: "orchestrate-light",
-    check() {
-      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
-      const r = runOrchestrate(
-        "revisa la arquitectura del nuevo pipeline de recall: trade-offs, modulos y su acoplamiento",
-        ULTRON,
-      );
-      if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
-      if (!r.directive) return { pass: false, detail: `route=${r.route} sin directiva para un prompt de arquitectura no-trivial` };
-      const model = (r.directive.model || "").toLowerCase();
-      return {
-        pass: model === "claude-opus-5-5",
-        detail: `route=${r.route} agent=${r.directive.agent} model=${model} (se exige claude-opus-5-5 para razonamiento profundo)`,
-      };
-    },
-  },
-  {
-    id: "22.3",
-    desc: "agente coherente con el route (agent in preferred_specialists(route)); coherencia >= 90%",
-    auto: true,
-    retiredBy: "orchestrate-light",
-    check() {
-      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
-      const mism = [];
-      let evaluated = 0;
-      for (const prompt of STACK_PROMPTS) {
-        const r = runOrchestrate(prompt, ULTRON);
-        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
-        if (!r.directive) continue; // sin directiva no aporta a coherencia (lo cubre 22.1/22.5)
-        evaluated++;
-        const valid = ROUTE_VALID_AGENTS[r.route];
-        if (!valid) { mism.push(`${r.route}:route-desconocido(${r.directive.agent})`); continue; }
-        if (!valid.includes(r.directive.agent)) mism.push(`${r.route}->${r.directive.agent}`);
-      }
-      if (evaluated === 0) return { pass: false, detail: "0 directivas emitidas sobre prompts mono-stack (sospechoso)" };
-      const rate = (evaluated - mism.length) / evaluated;
-      return {
-        pass: rate >= 0.9,
-        detail: mism.length === 0
-          ? `${evaluated}/${evaluated} agentes coherentes con su route (100%)`
-          : `coherencia=${(rate * 100).toFixed(0)}% (${mism.length} incoherente(s): ${mism.join(", ")})`,
-      };
-    },
-  },
-  {
-    id: "22.4",
-    desc: "agente resoluble por la herramienta Agent: fileExists(~/.claude/agents/<name>.md) para cada directiva",
-    auto: true,
-    retiredBy: "orchestrate-light",
-    check() {
-      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
-      const prompts = [...HAIKU_INTENT_PROMPTS.map((p) => p[1]), ...STACK_PROMPTS];
-      const emitted = new Set();
-      for (const prompt of prompts) {
-        const r = runOrchestrate(prompt, ULTRON);
-        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
-        if (r.directive && r.directive.agent) emitted.add(r.directive.agent);
-      }
-      if (emitted.size === 0) return { pass: false, detail: "0 agentes emitidos sobre el set delegable (sospechoso)" };
-      const unresolved = [...emitted].filter(
-        (n) => !fileExists(join(AGENTS_DIR, `${n}.md`)) && !fileExists(join(AGENTS_DIR, `${n}.md.disabled`)),
-      );
-      return {
-        pass: unresolved.length === 0,
-        detail: unresolved.length === 0
-          ? `${emitted.size} agentes distintos emitidos, todos resueltos en ~/.claude/agents/`
-          : `${unresolved.length}/${emitted.size} agentes NO resolubles (Agent tool no los acepta): ${unresolved.join(", ")}`,
-      };
-    },
-  },
-  {
-    id: "22.5",
-    desc: "meta-tareas NO delegables (consolida memoria / edita skill / mueve card / olvida) -> directive null",
-    auto: true,
-    retiredBy: "orchestrate-light",
-    check() {
-      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
-      const leaked = [];
-      for (const prompt of META_PROMPTS) {
-        const r = runOrchestrate(prompt, ULTRON);
-        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
-        if (r.directive) leaked.push(`"${prompt.slice(0, 24)}"->${r.directive.agent}`);
-      }
-      return {
-        pass: leaked.length === 0,
-        detail: leaked.length === 0
-          ? `${META_PROMPTS.length} meta-tareas sin directiva (no delegables)`
-          : `${leaked.length} meta-tarea(s) delegada(s) por error: ${leaked.join(" | ")}`,
-      };
-    },
-  },
-  {
-    id: "22.6",
-    desc: "negativos (charla/pregunta corta) -> directive null (caso negativo)",
-    auto: true,
-    retiredBy: "orchestrate-light",
-    check() {
-      if (!orchHookAvailable()) return { pass: false, detail: "no medible: falta hook/binario (clon limpio/CI)" };
-      const leaked = [];
-      for (const prompt of NEGATIVE_PROMPTS) {
-        const r = runOrchestrate(prompt, ULTRON);
-        if (!r.ok) return { pass: false, detail: `hook no emitio salida: ${r.raw ?? ""}` };
-        if (r.directive) leaked.push(`"${prompt}"->${r.directive.agent}`);
-      }
-      return {
-        pass: leaked.length === 0,
-        detail: leaked.length === 0
-          ? `${NEGATIVE_PROMPTS.length} negativos sin directiva (correcto)`
-          : `${leaked.length} negativo(s) con directiva (falso positivo): ${leaked.join(" | ")}`,
-      };
-    },
-  },
   {
     id: "22.7",
     desc: "modo ligero real: en el set delegable+meta+charla el hook no emite orchestration-context ni directiva, cada salida <= 2500 chars, y un tono pedido SI se inyecta (control positivo)",
@@ -459,7 +227,7 @@ cat(22, "Delegacion multimotor y relevo", [
     onlyWhile: "orchestrate-light",
     area: "hooks", // mide el hook memory-orchestrate, no la delegacion multimotor
     check() {
-      // Sustituye a 22.1-22.6 mientras el orchestrate vaya en ligero. Mide el
+      // Mide el
       // artefacto vivo: 0 delegacion fantasma y 0 recall por prompt, sin pasar por
       // vacuidad: el control positivo exige que un tono pedido llegue (si el hook
       // devolviera siempre vacio, falla). 2500 chars: la directiva de tono completa

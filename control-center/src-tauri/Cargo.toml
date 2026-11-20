@@ -1,11 +1,10 @@
 [package]
 name = "control-center"
-version = "15.8.0"
+version = "15.9.0"
 description = "ULTRON Control Center - desktop control panel for the ULTRON system"
 authors = ["Rodrigo Fernandez"]
 edition = "2021"
-# The crate ships several binaries (app + ultron-memory sidecar + embed
-# helper). Without default-run, tauri-cli picks an arbitrary bin as "the
+# The crate ships several binaries (app + ultron-memory sidecar). Without default-run, tauri-cli picks an arbitrary bin as "the
 # app" and the bundler then fails with os error 2 looking for the wrong
 # exe (broke the v15.6.0 release run on BOTH platforms; local builds never
 # noticed because targets:["app"] skips bundling on Windows/Linux).
@@ -25,12 +24,11 @@ crate-type = ["rlib"]
 
 # Memory/orchestrator CLI sidecar invoked by the Claude Code hooks (Node) so the
 # hooks reuse the canonical Rust logic instead of duplicating it in JS.
-#   cargo build --release --bin ultron-memory   (qdrant is a default feature)
+#   cargo build --release --bin ultron-memory
 # Deploy: node scripts/redeploy-memory-sidecar.mjs from the repo root.
 [[bin]]
 name = "ultron-memory"
 path = "src/bin/ultron_memory/main.rs"
-required-features = ["qdrant"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -87,9 +85,6 @@ tracing-appender = "0.2"
 # Emulador de terminal para clasificar la pantalla de la TUI de claude en
 # ULTRON Sessions (src/sesiones/pantalla.rs).
 vt100 = "0.16"
-# Dense recall stack (optional, pulled in by the default `qdrant` feature).
-# fastembed runs MultilingualE5Large (1024-d) locally over ONNX, no API key.
-fastembed = { version = "4", optional = true }
 # Piloto MCP de la GUI (solo desarrollo, ver docs/MCP-TAURI-PILOTO.md): el
 # puente WebSocket que usa @hypothesi/tauri-mcp-server para capturas, DOM,
 # logs e IPC. Version exacta fijada; solo entra con --features mcp-bridge y
@@ -104,19 +99,11 @@ png = "0.17"
 tempfile = "3"
 
 [features]
-# `qdrant` is a default feature: it COMPILES the dense stack so embed_e5() can
-# use the real MultilingualE5Large (1024-d, ~2.2 GB) instead of the zero-stub.
-# At runtime the dense path stays OFF while ULTRON_DENSE=0 (qdrant.rs
-# dense_enabled(); recall is then FTS5-only and `doctor` reports it). When it
-# is on, fastembed downloads the ONNX model on first use into
-# ULTRON_FASTEMBED_CACHE (default ~/.ultron/.fastembed_cache/).
-# CI builds with the default features (ci.yml: clippy/test --lib --bins
-# --profile test). --no-default-features also drops the ultron-memory bin
-# (required-features).
-default = ["qdrant"]
-# Enable local Qdrant semantic recall. Pulls in fastembed (ONNX runtime +
-# MultilingualE5Large, first-use download).
-qdrant = ["dep:fastembed"]
+# Sin features por defecto. El recall de memoria es solo sparse (FTS5 sobre
+# brain.db): la ruta densa (índice vectorial, embeddings y re-ranker) se
+# retiró el 2026-11-14. CI compila con las features por defecto (ci.yml:
+# clippy/test --lib --bins --profile test).
+default = []
 # Enable the Finance tab (reads finanzas.db: datos bancarios locales).
 # finance.rs is excluded from the public repo via .gitignore; this feature
 # flag keeps the binary buildable without that file present.

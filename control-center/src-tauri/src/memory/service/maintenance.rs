@@ -5,7 +5,7 @@
 //
 // Separado de `mutations.rs` (escrituras de un item) para que ninguno pase de
 // las 800 líneas. Todas las operaciones reutilizan los caminos de un solo item
-// (`set_status`, `archive_one`), así que FTS5, Qdrant y el log de eventos
+// (`set_status`, `archive_one`), así que FTS5 y el log de eventos
 // siguen la misma regla de oro: solo `MemoryService` escribe.
 
 use super::super::model::{
@@ -20,7 +20,7 @@ use super::{
 impl MemoryService {
     /// Bulk-deprecate every ACTIVE item of `kind` (optionally scoped to one
     /// `project`). Reuses the single-item [`Self::set_status`] path per id, so
-    /// FTS5 triggers + Qdrant (`sync_index`) + the append-only event log all stay
+    /// FTS5 triggers + the append-only event log all stay
     /// consistent — no bespoke sync logic. `dry_run` only counts (mutates nothing).
     /// A per-item failure is collected in `failed` and does NOT abort the batch.
     pub fn deprecate_by_type(
@@ -71,13 +71,11 @@ impl MemoryService {
         })
     }
 
-    /// Archiva UN item ya cargado: Qdrant primero (si el punto no se puede
-    /// quitar, el item se queda — un archivo parcial es peor que uno
-    /// pospuesto), luego la fila a `memory_items_archive`, luego el evento de
-    /// auditoría. Extraído de `archive_by_type` (F1.7) para que otros
+    /// Archiva UN item ya cargado: la fila a `memory_items_archive` y el evento
+    /// de auditoría. Extraído de `archive_by_type` (F1.7) para que otros
     /// llamadores por-id (p.ej. `apply_deprecation_deadlines`, que recorre
     /// `deprecation_entries` en vez de un `SELECT` por tipo) reutilicen el
-    /// mismo orden Qdrant-antes-que-SQL en vez de duplicarlo.
+    /// mismo camino en vez de duplicarlo.
     pub(super) fn archive_one(
         conn: &rusqlite::Connection,
         item: &MemoryItem,
@@ -86,8 +84,6 @@ impl MemoryService {
         actor: Actor,
     ) -> Result<(), MemoryError> {
         let before = serde_json::to_string(item).unwrap_or_default();
-        super::super::qdrant_index::remove_item(&item.id)
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("qdrant: {e}")))?;
         let ev = MemoryEvent::new(EventType::Updated, Some(item.id.clone()), actor)
             .with_reason(reason.to_string())
             .with_before(before);
@@ -96,13 +92,10 @@ impl MemoryService {
 
     /// F1.7 (Q8b, decidido 2026-08-29): mover a `memory_items_archive` los
     /// ACTIVE de `kind` creados hace más de `older_than_days`. Salen del
-    /// retriever, de FTS5 (trigger `memory_items_ad`), de Qdrant
-    /// (`qdrant_index::remove_item`) y de reconcile; la fila entera queda en el
-    /// archivo y el evento en `memory_events`. Medido 2026-09-06: 1.654
+    /// retriever y de FTS5 (trigger `memory_items_ad`); la fila entera queda en
+    /// el archivo y el evento en `memory_events`. Medido 2026-09-06: 1.654
     /// `agent_note` activas, 0 inyectadas jamás (excluidas por policy) y aun
-    /// así en FTS5 y en Qdrant. `dry_run` solo cuenta; un fallo por item no
-    /// aborta el lote. Qdrant primero: si el punto no se puede quitar, el item
-    /// se queda (un archivo parcial es peor que uno pospuesto).
+    /// así en FTS5. `dry_run` solo cuenta; un fallo por item no aborta el lote.
     pub fn archive_by_type(
         kind: MemoryType,
         older_than_days: u64,
@@ -148,7 +141,7 @@ impl MemoryService {
     /// Deprecar las copias exactas (2026-09-03): en cada grupo de ACTIVE con el
     /// mismo `content_hash` + scope + proyecto sobrevive UNA fila (pinned,
     /// luego validada por el usuario, luego la más antigua) y el resto pasa a
-    /// Deprecated vía `set_status` (FTS5 + Qdrant + ledger en sync; reversible).
+    /// Deprecated vía `set_status` (FTS5 + ledger en sync; reversible).
     /// Origen medido: 206 sobrantes creadas por drains `--auto` solapados.
     pub fn deprecate_exact_duplicates(
         dry_run: bool,
@@ -194,7 +187,7 @@ impl MemoryService {
     /// umbral de ruido 0.55 lastrando el recall. PROTEGIDOS (se cuentan, no se
     /// tocan): golden positives (`protected_ids` — deprecarlos rompe el
     /// oráculo), pinned y user-validated. Reversible (Deprecated, no forget);
-    /// cada transición pasa por `set_status` (FTS5 + Qdrant + ledger en sync).
+    /// cada transición pasa por `set_status` (FTS5 + ledger en sync).
     pub fn sweep_low_confidence(
         below: f32,
         protected_ids: &std::collections::HashSet<String>,
@@ -246,9 +239,8 @@ impl MemoryService {
     }
 
     /// Sweep ACTIVE items not MODIFIED in `older_than_days` and transition them to
-    /// [`Status::Stale`] (no longer recall-eligible; `sync_index` drops them from
-    /// the dense index). Reuses the proven [`Self::set_status`] path per id so
-    /// FTS5 triggers + Qdrant + the append-only event log stay consistent — no
+    /// [`Status::Stale`] (no longer recall-eligible). Reuses the proven
+    /// [`Self::set_status`] path per id so FTS5 triggers + the append-only event log stay consistent — no
     /// bespoke sync logic.
     ///
     /// Honest scope (mand. 13): "stale" here = "not MODIFIED in N days"

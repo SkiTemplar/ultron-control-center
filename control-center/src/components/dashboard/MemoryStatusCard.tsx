@@ -1,17 +1,13 @@
 // Dashboard — Memory system status card.
 //
 // Reflects the *current* memory system: the MemoryService over SQLite FTS5
-// (brain.db, always on) with the candidate inbox. The dense stack (E5
-// embeddings in Qdrant) is optional and ULTRON_DENSE=0 turns it off; when it
-// is off, Qdrant is shown as unused instead of as a failing store.
+// (brain.db) with the candidate inbox. Recall is sparse FTS5 only: the dense
+// route was removed on 2026-11-14, so there is no second store to show.
 //
 // Data sources:
 //   memory_stats()  → active items + pending candidates in the inbox.
-//   memory_health() → per-store health + embeddings_real flag (we only render
-//                     qdrant + sqlite; other keys are ignored on purpose).
-//                     embeddings_real=false means embed_e5 returns the zero
-//                     vector: dense stack off (or E5 unavailable), so recall
-//                     is sparse FTS5 only. The sqlite store carries the FTS5
+//   memory_health() → per-store health (only `sqlite`; any other key is
+//                     ignored on purpose). The sqlite store carries the FTS5
 //                     index state in `details` (rows, items, integrity) and is
 //                     unhealthy when the index diverges from memory_items: the
 //                     card then turns red and shows both counts.
@@ -39,7 +35,6 @@ interface StoreHealth {
 
 interface MemoryHealth {
   stores: Record<string, StoreHealth>;
-  embeddings_real: boolean;
 }
 
 interface MemoryStats {
@@ -51,14 +46,12 @@ interface MemoryStats {
   candidates_pending: number;
 }
 
-// SQLite (lexical) is always on; Qdrant (semantic) only counts when the dense
-// stack is active. Any other store keys the health probe may report are legacy
-// and intentionally hidden.
+// SQLite (FTS5) is the only store. Any other key the health probe may report
+// is legacy and intentionally hidden.
 const STORE_LABELS: Record<string, string> = {
-  qdrant: "Qdrant (denso, opcional)",
   sqlite: "SQLite (FTS5)",
 };
-const STORE_ORDER = ["sqlite", "qdrant"];
+const STORE_ORDER = ["sqlite"];
 
 /** Plazo de cada consulta (las dos tardan menos de 1,5 s medidas en release). */
 const MEMORY_TIMEOUT_MS = 20_000;
@@ -131,13 +124,9 @@ export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
   }, [load]);
 
   const stores = health?.stores ?? {};
-  const denseActive = health?.embeddings_real === true;
   const relevant = STORE_ORDER.filter((id) => stores[id]);
-  // With the dense stack off, a stopped Qdrant is the expected state, not a
-  // fault: it is listed as unused and left out of the health accent.
-  const counted = relevant.filter((id) => id !== "qdrant" || denseActive);
-  const healthyCount = counted.filter((id) => stores[id]?.healthy).length;
-  const totalCount = counted.length;
+  const healthyCount = relevant.filter((id) => stores[id]?.healthy).length;
+  const totalCount = relevant.length;
   const allHealthy = totalCount > 0 && healthyCount === totalCount;
   // An out-of-sync FTS5 index means sparse recall returns garbage: red,
   // whatever the other stores say.
@@ -198,52 +187,12 @@ export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
           </div>
         </div>
 
-        {/* Embeddings flag */}
-        <div
-          className="flex items-center justify-between rounded px-2.5 py-1.5 text-[12px]"
-          style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border)" }}
-        >
-          <span style={{ color: "var(--color-text-secondary)" }}>Embeddings</span>
-          <span
-            className="rounded px-1.5 py-px text-[10.5px] font-semibold"
-            style={{
-              background: denseActive ? "rgba(63,185,80,0.12)" : "var(--color-surface-2)",
-              color: denseActive ? "var(--color-success)" : "var(--color-text-tertiary)",
-              border: `1px solid ${denseActive ? "rgba(63,185,80,0.3)" : "var(--color-border)"}`,
-            }}
-            title={
-              denseActive
-                ? "E5 activo: recall híbrido (FTS5 + denso)"
-                : "Sin embeddings (ULTRON_DENSE=0 o E5 no disponible): recall solo con FTS5"
-            }
-          >
-            {denseActive ? "reales (fastembed)" : "apagados · solo FTS5"}
-          </span>
-        </div>
-
         {fts && <FtsIndexRow fts={fts} />}
 
-        {/* Per-store dots — only the two stores that make up the live system. */}
+        {/* Per-store dots — only the store that makes up the live system. */}
         <ul className="space-y-1">
           {relevant.map((id) => {
             const s = stores[id];
-            if (id === "qdrant" && !denseActive) {
-              return (
-                <li key={id} className="flex items-center gap-2 text-[12px]">
-                  <span
-                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ background: "var(--color-text-faint)" }}
-                    title="Denso apagado: Qdrant no participa en el recall"
-                  />
-                  <span className="flex-1 truncate" style={{ color: "var(--color-text-tertiary)" }}>
-                    {STORE_LABELS[id] ?? id}
-                  </span>
-                  <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-                    sin uso
-                  </span>
-                </li>
-              );
-            }
             return (
               <li key={id} className="flex items-center gap-2 text-[12px]">
                 <span

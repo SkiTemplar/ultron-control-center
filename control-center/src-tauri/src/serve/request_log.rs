@@ -1,8 +1,8 @@
 //! Traza por petición servida (`~/.ultron/logs/memory-daemon.jsonl`).
 //!
 //! Hasta 2026-09-07 el daemon no dejaba rastro de lo que servía, así que un
-//! prompt degradado no se podía atribuir a nada: ni a modelos fríos, ni al
-//! semáforo lleno, ni a trabajo real. Best-effort en todo: escribir el log
+//! prompt degradado no se podía atribuir a nada: ni a contención ni a
+//! trabajo real. Best-effort en todo: escribir el log
 //! nunca puede hacer fallar la petición.
 
 use std::io::Write;
@@ -27,16 +27,10 @@ fn request_log_path() -> Option<PathBuf> {
 }
 
 /// Línea JSONL de una petición ya servida: comando, milisegundos, resultado
-/// (`ok` o el `error` devuelto), estado de los modelos antes y después,
-/// y para `orchestrate`/`recall` el proyecto, el tamaño del prompt y cuántas
-/// memorias salieron. Best-effort: nunca falla la petición por el log.
-pub(super) fn log_request(
-    req: &Req,
-    resp: &Value,
-    elapsed: Duration,
-    models_before: &[&str],
-    inference_wait_ms: u64,
-) {
+/// (`ok` o el `error` devuelto) y, para `orchestrate`/`recall`, el proyecto, el
+/// tamaño del prompt y cuántas memorias salieron. Best-effort: nunca falla la
+/// petición por el log.
+pub(super) fn log_request(req: &Req, resp: &Value, elapsed: Duration) {
     let Some(path) = request_log_path() else {
         return;
     };
@@ -56,24 +50,11 @@ pub(super) fn log_request(
         "pid": std::process::id(),
         "cmd": req.cmd,
         "ms": elapsed.as_millis() as u64,
-        // Parte de `ms` esperando el turno de inferencia (contención con otras
-        // peticiones), no calculando.
-        "inference_wait_ms": inference_wait_ms,
         "ok": error.is_none(),
         "error": error,
         "project": req.project,
-        // `embed` no manda `prompt` sino `text`: se registra su tamano por el
-        // mismo campo para que el log tenga una sola columna de "cuanto texto".
-        "prompt_chars": req
-            .prompt
-            .as_deref()
-            .or(req.text.as_deref())
-            .map(|p| p.chars().count()),
+        "prompt_chars": req.prompt.as_deref().map(|p| p.chars().count()),
         "memories": memories,
-        "models_before": models_before,
-        "models_after": crate::qdrant::loaded_models(),
-        "rerank_model": crate::qdrant::reranker_model_id(),
-        "rerank_hot": resp.get("rerank_hot").and_then(Value::as_bool),
     });
     rotate_if_large(&path);
     if let Ok(mut f) = std::fs::OpenOptions::new()

@@ -7,17 +7,15 @@
 // `Quarantine`. It NEVER writes items and NEVER auto-approves.
 //
 // FAIL-SAFE by construction (1.7: now fail-CLOSED on infra):
-//   - The semantic step (neighbour search + the LLM judge) is isolated in
-//     `check`. With the dense stack ON but Qdrant/E5 down, `check` returns
-//     `None` (NOT verifiable) so the write-path marks the candidate `unjudged`
-//     and never auto-approves it; the pipeline is never BLOCKED (the hook still
-//     completes).
-//   - With the dense stack deliberately OFF (`ULTRON_DENSE=0`, 2026-09-28) the
-//     neighbours come from FTS5 instead (H11, 2026-10-17): before, every
+//   - The neighbour search + the LLM judge are isolated in `check`. If the
+//     search fails, `check` returns `None` (NOT verifiable) so the write-path
+//     marks the candidate `unjudged` and never auto-approves it; the pipeline
+//     is never BLOCKED (the hook still completes).
+//   - The neighbours come from FTS5 (H11, 2026-10-17; the dense k-NN was
+//     retired on 2026-11-14): before, with the dense stack off, every
 //     candidate stayed `unjudged` forever and auto-approve never fired (677 of
 //     677 pending). The lexical neighbours pass a topic floor
-//     (`is_lexical_neighbour`) before reaching the judge, in the role of the
-//     0.83 cosine floor of the dense path.
+//     (`is_lexical_neighbour`) before reaching the judge.
 //   - The LLM judge (`ai_tasks::judge_contradiction`) is tolerant: on any
 //     parse/route failure it reports `false` (no contradiction), so a degraded
 //     model can never spuriously quarantine a memory.
@@ -33,12 +31,12 @@ use super::ai_tasks::ContradictionClass;
 use super::model::{CandidateAction, MemoryItem, Status};
 use super::sqlite_store as store;
 
-/// How many dense neighbours to inspect per proposal. Kept small: the LLM
+/// How many neighbours to inspect per proposal. Kept small: the LLM
 /// judge is the expensive step, and a contradiction with the proposal will be
 /// among the very nearest items if it exists at all.
 const NEIGHBOUR_LIMIT: u32 = 5;
 
-/// Candidatos que se piden a FTS5 (orden BM25) con el denso apagado, antes de
+/// Candidatos que se piden a FTS5 (orden BM25), antes de
 /// filtrar por proyecto y por tema. Holgado frente a `NEIGHBOUR_LIMIT` porque el
 /// OR de términos de FTS5 trae ruido que el filtro descarta.
 const LEXICAL_FANOUT: usize = 20;
@@ -50,8 +48,7 @@ const LEXICAL_MIN_SHARED: usize = 2;
 
 /// Suelo de tema del camino léxico: fracción del vocabulario del texto más corto
 /// que aparece en el otro (coeficiente de solapamiento). Por debajo de la mitad
-/// no es "el mismo tema" y no hay proposición que contradecir: el mismo papel
-/// que el 0.83 de coseno del camino denso.
+/// no es "el mismo tema" y no hay proposición que contradecir.
 const LEXICAL_MIN_OVERLAP: f32 = 0.5;
 
 /// A single detected contradiction between a proposal and an ACTIVE item.
@@ -94,10 +91,9 @@ impl ContradictionFinding {
 ///
 /// Degradation contract (1.7 fail-closed):
 ///   - Empty / whitespace-only proposal   -> `Some(vec![])` (nothing to compare).
-///   - Dense ON, Qdrant/E5 unavailable    -> `None` (NOT verifiable → the caller
-///     marks the candidate `unjudged` and never auto-approves it).
-///   - Dense OFF (`ULTRON_DENSE=0`)        -> neighbours from FTS5 + topic floor;
-///     a SQLite error on that search -> `None` (same fail-closed contract).
+///   - Neighbours from FTS5 + topic floor; a SQLite error on that search ->
+///     `None` (NOT verifiable → the caller marks the candidate `unjudged` and
+///     never auto-approves it).
 ///   - Query ran but found 0 neighbours    -> `Some(vec![])` (verified clean).
 ///   - A neighbour id no longer in SQLite  -> skipped (never errors).
 ///   - The LLM judge unavailable           -> conservative `false` (declared
@@ -116,11 +112,10 @@ pub fn check(
         return Some(Vec::new()); // nada que comparar = verificado-vacío (no infra-fail)
     }
 
-    // 1.7 fail-closed end-to-end: distinguir "infra de búsqueda caída" (Qdrant/E5
-    // off → `None`, el caller marca `unjudged`) de "se consultó y no hay vecinos"
-    // (`Some(vec![])`). Antes `search_dense` colapsaba ambos a un vec vacío, que el
-    // pipeline trataba como "verificado limpio" → con auto-approve ON y Qdrant
-    // caído, una Fact contradictoria se auto-promovía.
+    // 1.7 fail-closed end-to-end: distinguir "búsqueda caída" (`None`, el caller
+    // marca `unjudged`) de "se consultó y no hay vecinos" (`Some(vec![])`).
+    // Colapsar ambos a un vec vacío hacía que, con auto-approve ON y la
+    // búsqueda caída, una Fact contradictoria se auto-promoviera.
     let neighbour_ids = neighbour_ids(conn, proposed, project_id)?;
 
     let mut findings: Vec<ContradictionFinding> = Vec::new();
@@ -160,31 +155,26 @@ pub fn check(
         }
     }
 
-    // La búsqueda de vecinos (densa o FTS5) quedó VERIFICADA (Some). Residual
+    // La búsqueda de vecinos (FTS5) quedó VERIFICADA (Some). Residual
     // declarado (mand. 13): el juez LLM sigue conservador — un None del modelo no
     // marca ese vecino; el fail-closed cubre la infra de BÚSQUEDA, el
     // juez-LLM-caído es residual menor.
     Some(findings)
 }
 
-/// Vecinos ACTIVOS que el juez debe mirar. Denso encendido: k-NN en Qdrant con
-/// su floor de coseno (y `None` si la infra está caída, fail-closed). Denso
-/// apagado a propósito: FTS5 más el suelo de tema léxico. En ese caso no se toca
-/// Qdrant: está apagado y sondearlo solo costaría el timeout del healthz.
+/// Vecinos ACTIVOS que el juez debe mirar: FTS5 más el suelo de tema léxico.
+/// `None` si la búsqueda falla (fail-closed: el llamante marca `unjudged`).
 fn neighbour_ids(
     conn: &Connection,
     proposed: &str,
     project_id: Option<&str>,
 ) -> Option<Vec<String>> {
-    if crate::qdrant::dense_enabled() {
-        return super::qdrant_index::search_dense_checked(proposed, NEIGHBOUR_LIMIT, project_id);
-    }
     let hits = store::search_items(conn, proposed, Status::Active, LEXICAL_FANOUT).ok()?;
     Some(select_lexical_neighbours(proposed, project_id, &hits))
 }
 
 /// PURA: de los resultados de FTS5 (ya en orden BM25) se queda con los del mismo
-/// proyecto o globales (el mismo filtro que el camino denso) que superan el
+/// proyecto o globales que superan el
 /// suelo de tema, hasta `NEIGHBOUR_LIMIT`.
 fn select_lexical_neighbours(
     proposed: &str,
@@ -282,7 +272,7 @@ pub fn supersede_disposition(
 }
 
 // ---------------------------------------------------------------------------
-// Tests -- PURE only. No Qdrant / network / API keys / E5. The semantic path
+// Tests -- PURE only. No network / API keys. The neighbour search
 // (`check`) is intentionally excluded; `recommended_action` is the decision
 // surface and is fully covered, plus the `ContradictionFinding` constructor.
 // ---------------------------------------------------------------------------
@@ -390,7 +380,7 @@ mod tests {
         assert_eq!(supersede_disposition(&[], true), Disposition::None);
     }
 
-    // --- camino léxico con el denso apagado (H11): sin LLM ni red ---
+    // --- camino léxico (H11): sin LLM ni red ---
 
     fn item(id: &str, project: Option<&str>, title: &str, summary: &str) -> MemoryItem {
         use super::super::model::{MemoryType, Scope, Source};
@@ -418,7 +408,7 @@ mod tests {
 
     #[test]
     fn lexical_neighbour_rejects_unrelated_topics() {
-        // Caso negativo: el par del falso positivo histórico del camino denso.
+        // Caso negativo: el par del falso positivo histórico del antiguo camino denso.
         assert!(!is_lexical_neighbour(
             "El usuario entrenó en otoño",
             "Mantener Autumn activo en el tema",

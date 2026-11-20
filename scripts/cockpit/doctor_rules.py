@@ -31,8 +31,6 @@ _DEFAULT_RULES: dict[str, Any] = {
         "alerts_max_size_mb": 10,
     },
     "staleness": {
-        "l0_max_hours": 4,
-        "ztmsi_max_hours": 4,
     },
     "thresholds": {
         "token_overhead_tokens": 1500,

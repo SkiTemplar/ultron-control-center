@@ -1,15 +1,12 @@
 //! skill_llm.rs — elección de skill por LLM sobre el catálogo completo.
 //!
-//! El fallback semántico de `routing-dispatcher.v3` recupera skills por coseno
-//! E5 sobre su descripción. Medido el 2026-08-27 sobre 10 prompts reales:
-//! top-1 acierta 4/10 y los scores de TODO el corpus caben en 0.79–0.84, así
-//! que ningún umbral separa un acierto de un candidato al azar. La causa es el
-//! corpus, no el índice: las descripciones de skill son listas largas y
-//! heterogéneas de triggers ("Activar SIEMPRE cuando el usuario diga…"), y su
-//! vector medio se parece a cualquier prompt en español.
+//! El retriever semántico de skills (coseno sobre la descripción, retirado el
+//! 2026-11-14 con la ruta densa) acertaba 4/10 en top-1 sobre 10 prompts
+//! reales (2026-08-27): las descripciones de skill son listas largas y
+//! heterogéneas de triggers y ningún umbral separaba un acierto del azar.
 //!
-//! Este módulo salta el retriever: le da al modelo el catálogo entero (nombre +
-//! una línea) y le pide que elija. Es el mismo rescate que `intent_llm` aplicó
+//! Este módulo le da al modelo el catálogo entero (nombre + una línea) y le
+//! pide que elija. Es el mismo rescate que `intent_llm` aplicó
 //! al intent, con la misma doctrina:
 //!   - solo se consulta en la cola ambigua (lo decide el llamante);
 //!   - timeout duro y fallo silencioso: devuelve vacío, nunca un error;
@@ -24,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// Techo de espera por defecto. Mayor que el de `intent_llm` (800 ms) porque
 /// aquí el prompt lleva el catálogo entero (~2.5k tokens) en vez de una frase
 /// y el flash de Google mide p50 ~1.2 s. Sigue dentro del presupuesto del hook
-/// (4500 ms compartidos) con el denso ya pagado.
+/// (4500 ms compartidos).
 const TIMEOUT_MS: u64 = 2500;
 
 /// Techo ajustable por entorno: el presupuesto real depende del proveedor
@@ -273,64 +270,6 @@ pub fn catalogo_desde_disco() -> Vec<SkillBrief> {
     catalogo_compacto(&pares)
 }
 
-/// Cuántas skills deja pasar el prefiltro denso. 25 sobre un pool de ~95 mantiene
-/// el acierto (al retriever le sobra recall@25 aunque su top-1 sea 4/10) y recorta
-/// el prompt a menos de la mitad.
-const TOPE_PREFILTRO: usize = 25;
-
-/// Catálogo recortado por el retriever denso antes de enseñárselo al modelo.
-///
-/// POR QUÉ: el catálogo entero son ~2.400 tokens por consulta. Con eso, el tier
-/// gratis de Gemini (20 peticiones/día) se agota en una mañana y el de Groq
-/// choca con su límite de tokens por minuto; medido el 2026-08-28, el juez
-/// llevaba desde su despliegue sin enrutar un solo prompt en producción. El
-/// denso ya está caliente en el daemon (~40 ms) y no necesita acertar el top-1:
-/// solo tiene que dejar la buena entre las 25 primeras.
-///
-/// Los slash commands de plugin entran SIEMPRE, sin pasar por el filtro: no
-/// están en el índice `ultron_skills_lazy`, así que el denso no puede
-/// proponerlos y prefiltrar por él los borraría del mapa.
-///
-/// FAIL-SAFE: si el denso no responde (Qdrant caído, modelo sin cargar) se
-/// devuelve el catálogo entero — el comportamiento anterior, más caro pero
-/// completo.
-pub fn catalogo_prefiltrado(prompt: &str, tope: usize) -> Vec<SkillBrief> {
-    let completo = catalogo_desde_disco();
-    if completo.is_empty() {
-        return completo;
-    }
-    let preferidos: std::collections::HashSet<String> =
-        crate::memory::catalog::search_skills_lazy(prompt, tope as u32)
-            .into_iter()
-            .map(|h| h.name.trim().to_lowercase())
-            .collect();
-    if preferidos.is_empty() {
-        return completo;
-    }
-    let comandos: std::collections::HashSet<String> = crate::skills::plugin_command_entries()
-        .into_iter()
-        .map(|s| s.name.trim().to_lowercase())
-        .collect();
-
-    let recortado: Vec<SkillBrief> = completo
-        .iter()
-        .filter(|s| {
-            let n = s.name.to_lowercase();
-            preferidos.contains(&n) || comandos.contains(&n)
-        })
-        .cloned()
-        .collect();
-    if recortado.is_empty() {
-        return completo;
-    }
-    recortado
-}
-
-/// Igual que `catalogo_prefiltrado` con el tope por defecto.
-pub fn catalogo_para(prompt: &str) -> Vec<SkillBrief> {
-    catalogo_prefiltrado(prompt, TOPE_PREFILTRO)
-}
-
 fn system_prompt(catalogo: &[SkillBrief]) -> String {
     let lineas: Vec<String> = catalogo
         .iter()
@@ -385,12 +324,10 @@ pub fn merece_consulta(prompt: &str) -> bool {
     prompt.split_whitespace().count() >= 4
 }
 
-/// Veredicto del juez. Distinguir "dijo que ninguna" de "no pude preguntar" es
-/// lo que permite al dispatcher callar el fallback denso solo en el primer caso
-/// (2026-09-21: tres prompts de auditoría recibieron consolidate-memory,
-/// escritura-humana y codex-result-handling con score 0,82-0,83, por encima del
-/// suelo de relevancia — el denso no tiene umbral capaz de separar eso, pero el
-/// juez sí sabía que no encajaba ninguna).
+/// Veredicto del juez. Distinguir "dijo que ninguna" de "no pude preguntar"
+/// permite al llamante tratar el primer caso como una decisión (2026-09-21:
+/// tres prompts de auditoría recibían skills que no encajaban y el juez sí
+/// sabía que no encajaba ninguna).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Veredicto {
     /// El modelo respondió. Vacío = "ninguna encaja", y eso es una DECISIÓN.
@@ -448,6 +385,15 @@ pub fn consultar_con_timeout(
     consultar_con_cliente(&client, system, user, max_tokens)
 }
 
+/// Key de un proveedor: entorno y, si falta, `HKCU\Environment`
+/// (`ai_router::key_source`). El daemon `serve` lo lanza un hook y hereda el
+/// entorno de `claude`, del que Sessions quita las keys: con solo
+/// `std::env::var`, lesson-distill y project-profile se quedaron sin ningún
+/// proveedor desde el 2026-10-30 (0 lecciones en 47 cierres).
+fn clave(key_var: &str) -> Option<String> {
+    crate::ai_router::key_source::resolve_key(key_var).filter(|k| !k.trim().is_empty())
+}
+
 fn consultar_con_cliente(
     client: &reqwest::blocking::Client,
     system: &str,
@@ -458,10 +404,7 @@ fn consultar_con_cliente(
         if en_cooldown(&proveedor.modelo) {
             continue;
         }
-        let Some(key) = std::env::var(&proveedor.key_var)
-            .ok()
-            .filter(|k| !k.trim().is_empty())
-        else {
+        let Some(key) = clave(&proveedor.key_var) else {
             // Sin credencial no es un fallo del proveedor: no merece cooldown,
             // simplemente no es una opcion en esta maquina.
             continue;
@@ -543,6 +486,31 @@ mod tests {
     }
 
     #[test]
+    fn la_clave_guardada_solo_en_el_registro_cuenta() {
+        let var = "ULTRON_TEST_SKILL_LLM_KEY_SOLO_REGISTRO";
+        assert!(
+            std::env::var(var).is_err(),
+            "la variable no debe existir en el entorno"
+        );
+        let _registro =
+            crate::ai_router::key_source::SimulatedUserScope::with(&[(var, "gsk_prueba")]);
+        assert_eq!(clave(var).as_deref(), Some("gsk_prueba"));
+    }
+
+    #[test]
+    fn sin_clave_en_ningun_sitio_no_hay_proveedor() {
+        let _registro = crate::ai_router::key_source::SimulatedUserScope::with(&[]);
+        assert!(clave("ULTRON_TEST_SKILL_LLM_KEY_EN_NINGUN_SITIO").is_none());
+    }
+
+    #[test]
+    fn una_clave_en_blanco_del_registro_no_cuenta() {
+        let var = "ULTRON_TEST_SKILL_LLM_KEY_EN_BLANCO";
+        let _registro = crate::ai_router::key_source::SimulatedUserScope::with(&[(var, "  ")]);
+        assert!(clave(var).is_none());
+    }
+
+    #[test]
     fn el_catalogo_deduplica_y_ordena() {
         let c = catalogo_compacto(&[
             ("brainstorming".to_string(), "Explorar ideas".to_string()),
@@ -592,9 +560,8 @@ mod tests {
     #[test]
     fn un_catalogo_vacio_no_es_una_decision_del_juez() {
         // Caso negativo del veredicto: sin catalogo no se ha preguntado a
-        // nadie, asi que el dispatcher DEBE seguir cayendo al denso. Si esto
-        // devolviera Decidido([]) se estaria silenciando el fallback por un
-        // fallo de lectura del pool de skills.
+        // nadie. Si esto devolviera Decidido([]) un fallo de lectura del pool
+        // de skills pasaria por la decision "ninguna encaja".
         assert_eq!(
             elegir_skills_veredicto("audita el repositorio y arregla lo roto", &[]),
             Veredicto::NoDisponible

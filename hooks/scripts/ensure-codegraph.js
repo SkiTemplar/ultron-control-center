@@ -2,7 +2,7 @@
 /**
  * ensure-codegraph.js — guard de arranque del daemon CodeGraph para SessionStart.
  *
- * Patron calcado de ensure-qdrant.js: check barato en caliente, spawn detached
+ * Patron: check barato en caliente, spawn detached
  * fire-and-forget en frio, y NUNCA bloquear ni romper el arranque de sesion.
  *
  * Motivo (diagnostico ultracode 2026-07-22): el daemon/watcher de codegraph solo

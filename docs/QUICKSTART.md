@@ -34,8 +34,8 @@ Catalog, Commands and Tones.
 - **Skills**: every skill under `~/.claude/skills/` and from plugins. The
   on/off toggle moves a skill into `~/.claude/skills/_disabled/<name>/`, a
   folder Claude Code does not load. Disabled skills are not injected
-  automatically: the lazy dispatcher is not wired as a hook (see
-  `cockpit/skill-lazy/README.md`).
+  automatically: the lazy dispatcher was removed on 2026-11-14; enable them
+  from the Skills tab.
 - **Agents**: the subagents under `~/.claude/agents/`. A fresh clone does
   **not** ship agent `.md` files; install the ones you want.
 - **Hooks**: the Claude Code hooks wired in `~/.claude/settings.json`.
@@ -65,7 +65,7 @@ shows its health, active items and pending candidates.
   `inbox reject --id <id>`. Nothing auto-promotes unless you enable
   auto-approve (`ultron-memory inbox auto-approve on`).
 - **Recall**: `ultron-memory recall "<query>"` (sparse FTS5 over `brain.db`;
-  dense recall over Qdrant is optional, `ULTRON_DENSE=0` turns it off) and
+  there is no dense index) and
   `ultron-memory trace "<query>"` for the full per-source trace.
 
 **Stuck?** No candidates showing? Capture happens at the end of a turn or

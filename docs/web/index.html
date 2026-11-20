@@ -412,7 +412,7 @@
       <a href="#parte-2">
         <div class="pn">Parte 2</div>
         <div class="pt">Cómo funciona por dentro</div>
-        <div class="pd">Toda la ingeniería: base embebida + índice denso opcional, recall híbrido (o solo FTS5) con score-floor, gobernanza, seguridad, AI Router, routing de skills y orquestación. Con los tecnicismos.</div>
+        <div class="pd">Toda la ingeniería: base embebida, recall léxico FTS5 con suelo de relevancia, gobernanza, seguridad, AI Router, routing de skills y orquestación. Con los tecnicismos.</div>
         <div class="go">Ir a la arquitectura →</div>
       </a>
     </div>
@@ -424,7 +424,7 @@
       </div>
       <div class="cell">
         <div class="k">Índice denso</div>
-        <div class="v">Qdrant <span class="u">· E5 1024-d nativo · opcional (ULTRON_DENSE=0 lo apaga)</span></div>
+        <div class="v">Retirado <span class="u">· desde el 2026-11-14 el recall es solo FTS5</span></div>
       </div>
       <div class="cell">
         <div class="k">Orquestación en caliente</div>
@@ -467,10 +467,8 @@
           primer prompt. Es lo que de verdad te da memoria y orquestación.
         </p>
         <div class="what">
-          <b>ultron-memory</b> · sidecar Rust (memoria + recall + embeddings E5 + orquestación)<br/>
+          <b>ultron-memory</b> · sidecar Rust (memoria + recall FTS5 + orquestación)<br/>
           <b>hooks/</b> · enganche al ciclo de vida de Claude Code<br/>
-          <b>routing-dispatcher</b> · inyección de skills bajo demanda (desconectado desde el 2026-09-29, ver §07)<br/>
-          <b>Qdrant</b> · índice vectorial nativo (auto-arranque; con <code>ULTRON_DENSE=0</code> no se lanza y el recall queda en FTS5)<br/>
           <span style="color:var(--ink-4)">→ <code style="color:var(--ink-2)">install.ps1 -NoApp</code> · <code style="color:var(--ink-2)">install.sh --no-app</code></span>
         </div>
       </div>
@@ -546,7 +544,7 @@
     </div>
     <p>
       ULTRON ataca exactamente eso. No es «un chat que recuerda un poco»: es una <b>memoria de
-      trabajo real</b> que persiste, se ordena, se busca por significado y se <b>autogobierna</b>
+      trabajo real</b> que persiste, se ordena, se busca por palabras y se <b>autogobierna</b>
       para no llenarse de basura. Cuando vuelves, el sistema ya sabe dónde lo dejasteis. Y cuando
       te trae algo, te trae <b>lo correcto</b>, no lo primero que pilla.
     </p>
@@ -613,17 +611,17 @@
         adecuado</b> — y, cuando la orden es clara, lo <b>pone a trabajar solo</b>.
       </p>
       <p class="dim" style="font-size:13px">
-        Alcance real: de serie el hook <code>memory-orchestrate</code> va en <b>modo ligero</b> y por
-        prompt solo aplica el tono de la conversación. La orquestación completa de esta sección
-        (recall, especialistas y delegación por prompt) se activa con
-        <code>ULTRON_ORCHESTRATE=full</code>.
+        Alcance real: el hook <code>memory-orchestrate</code> por prompt solo aplica el tono de la
+        conversación. La orquestación completa de esta sección (recall, especialistas y delegación
+        por prompt) ya no corre por prompt: el modo <code>ULTRON_ORCHESTRATE=full</code> se borró el
+        2026-11-14.
       </p>
     </div>
 
     <p>
       Dices «revisa esto por seguridad» y, sin nombrar a nadie, entra el experto de seguridad.
       Dices «esto va lento» y entra el de rendimiento. ULTRON tiene un catálogo de decenas de
-      especialistas (agentes y skills) y elige por <b>significado</b>, no por palabras sueltas.
+      especialistas (agentes y skills) y elige por la <b>intención</b> de la tarea, con reglas.
     </p>
 
     <ul class="list">
@@ -654,15 +652,14 @@
       <h2>Vive en tu ordenador. Y va rápido.</h2>
       <p class="sec-sub">
         Tu memoria no se va a la nube de nadie. Se guarda en una base de datos <b>en tu disco</b>,
-        que puedes ver, copiar y versionar. Y está pensada para exprimir tu hardware: el modelo que
-        entiende el significado se mantiene <b>caliente en memoria</b> para responder en
-        milisegundos.
+        que puedes ver, copiar y versionar. Y es ligera: la búsqueda es léxica, sobre la propia base,
+        sin modelos pesados cargados en RAM.
       </p>
     </div>
     <ul class="list">
       <li><b>Local de verdad.</b> La verdad vive en un archivo en tu ordenador. Sin servidor ajeno.</li>
       <li><b>Rápido en caliente.</b> Traer el contexto a la IA tarda decenas de milisegundos cuando el motor ya está arrancado.</li>
-      <li><b>Aprovecha tu máquina.</b> Un proceso residente mantiene el modelo de significado listo, sin recargarlo en cada consulta.</li>
+      <li><b>Ligero.</b> Un proceso residente atiende las consultas con unas decenas de MB de RAM, sin modelos de embeddings.</li>
       <li><b>Auditable.</b> Cada cambio en la memoria queda registrado. Puedes saber qué entró, cuándo y por qué.</li>
     </ul>
     <p style="font-family:var(--mono);font-size:11.5px;color:var(--ink-4);margin-top:18px">
@@ -680,7 +677,7 @@
       <p class="sec-sub">
         De un vistazo. La mayoría de asistentes «recuerdan» pegando notas sueltas en su servidor
         cuando les apetece. ULTRON <b>toma acta de cada sesión, te la pasa para que la apruebes</b>,
-        y la guarda en <b>tu propio ordenador</b> — organizada, buscable por significado, sin
+        y la guarda en <b>tu propio ordenador</b> — organizada, buscable por palabras, sin
         duplicados y sin que se le escape un secreto.
       </p>
     </div>
@@ -728,7 +725,7 @@
         <tr>
           <td class="dim">Cómo busca</td>
           <td>Por coincidencia de palabras</td>
-          <td class="hot">Por palabras (FTS5) y, con el modo denso activo, por <b>significado</b></td>
+          <td class="hot">Por palabras (FTS5/BM25), ponderadas por confianza, frescura y proyecto</td>
         </tr>
         <tr>
           <td class="dim">Duplicados / caducidad</td>
@@ -775,24 +772,22 @@
     <h2>La ingeniería, con todos los tecnicismos.</h2>
     <p>
       Aquí está el motor abierto en canal. La <b>memoria</b> guarda la verdad en una base embebida y
-      la protege. El <b>recall híbrido</b> la encuentra rápido (denso E5 + léxico FTS5, fusionados
-      por rango) y <b>filtra por relevancia</b> para no inyectar ruido. La <b>gobernanza</b>
+      la protege. El <b>recall léxico</b> la encuentra rápido (FTS5/BM25 sobre la propia base) y
+      <b>filtra por relevancia</b> para no inyectar ruido. La <b>gobernanza</b>
       deduplica, supersede y caduca. La <b>seguridad</b> tacha secretos en escritura y lectura. El
-      <b>AI Router</b> reparte las tareas internas entre cuotas gratuitas (groq y gemini). El
-      <b>routing de skills</b> inyecta al especialista bajo demanda (determinista + semántico). El
-      <b>orquestador</b> lo delega solo. Todo corre en Rust, en local.
+      <b>AI Router</b> reparte las tareas internas entre cuotas gratuitas (groq y gemini). Las
+      <b>skills</b> se cargan bajo demanda. El <b>orquestador</b> propone a quién delegar. Todo corre en Rust, en local.
     </p>
     <p>
-      <b>Configuración de la máquina de desarrollo:</b> desde el 2026-09-28 corre con
-      <code>ULTRON_DENSE=0</code> y <code>ULTRON_RERANK=0</code> (recall solo FTS5, sin Qdrant ni
-      E5 cargados) y con <code>memory-orchestrate</code> en modo ligero (solo el tono; la memoria
-      entra por el resume de arranque). El dispatcher de skills está desconectado desde el
-      2026-09-29. Las secciones 02, 07 y 08 describen el diseño completo, que vuelve con
-      <code>ULTRON_DENSE</code> sin fijar y <code>ULTRON_ORCHESTRATE=full</code>.
+      <b>Estado real:</b> la ruta densa (Qdrant + E5 + re-ranker) se apagó el 2026-09-28 y se
+      retiró del código el 2026-11-14 (recall@8 golden sparse 0,131 frente a 0,744 con
+      denso+rerank, precio aceptado por la RAM). <code>memory-orchestrate</code> solo inyecta el
+      tono; la memoria entra por el resume de arranque. El dispatcher de skills y el modo
+      completo del hook se borraron el mismo día. La sección 07 describe un diseño que ya no corre.
     </p>
     <div class="jump">
       <a href="#memory">01 · Memoria</a>
-      <a href="#recall">02 · Recall + score-floor</a>
+      <a href="#recall">02 · Recall + suelo de relevancia</a>
       <a href="#governance">03 · Gobernanza</a>
       <a href="#security">04 · Seguridad</a>
       <a href="#capture">05 · Captura</a>
@@ -814,13 +809,12 @@
       <h2>Un solo lugar para la verdad. Un solo escritor.</h2>
       <p class="sec-sub">
         La verdad vive en <code class="t">~/.ultron/brain.db</code>, una base SQLite en modo WAL con
-        índice léxico FTS5. El índice semántico vive aparte, en Qdrant, y es <b>derivado</b>: se
-        puede borrar y reconstruir en cualquier momento sin perder un solo dato. El binario nativo
+        índice léxico FTS5, <b>derivado</b> de la tabla: se puede reconstruir en cualquier momento
+        (<code class="t">ultron-memory fts-rebuild</code>) sin perder un solo dato. El binario nativo
         <code class="t">ultron-memory</code> (sidecar Rust) encapsula toda la lógica canónica.
         Un <b>daemon residente</b> (<code class="t">ultron-memory serve</code>) atiende el recall por
-        IPC local y, con el denso encendido, mantiene el modelo de embeddings E5 en RAM y lo suelta
-        tras un rato sin uso (<code class="t">ULTRON_MODEL_IDLE_MIN</code>, 30 min por defecto). Con
-        <code class="t">ULTRON_DENSE=0</code> no carga E5 ni usa Qdrant: el recall es solo FTS5.
+        IPC local con unas decenas de MB de RAM: no carga modelos de embeddings, porque el recall es solo
+        FTS5.
       </p>
     </div>
 
@@ -875,16 +869,18 @@
         <code class="t">rejected</code>, <code class="t">quarantined</code> o
         <code class="t">stale</code> <b>no</b> es elegible para recall. Solo los
         <code class="t">active</code> se inyectan como contexto. Esta invariante está protegida por
-        tests unitarios que corren sin Qdrant.
+        tests unitarios herméticos.
       </p>
     </div>
 
-    <h3>Las dos capas de almacenamiento</h3>
+    <h3>Una sola capa de almacenamiento</h3>
     <p>
-      <code class="t">brain.db</code> manda. Qdrant acelera. El servicio mantiene el índice en paso
-      con cada escritura vía <code class="t">sync_index</code>: un ítem que pasa a ACTIVE se
-      (re)indexa; cualquier otro estado lo elimina del índice. Los errores de Qdrant se ignoran a
-      propósito —la verdad está en SQLite— y cualquier desincronización es detectable y reparable.
+      <code class="t">brain.db</code> manda, y su índice FTS5 (<code class="t">memory_items_fts</code>,
+      de contenido externo) es el único derivado. Puede divergir de la tabla sin que
+      <code class="t">integrity_check</code> lo vea: el check <code class="t">fts</code> del doctor lo
+      compara y <code class="t">fts-rebuild</code> lo repara. Hasta el 2026-11-14 había además un
+      índice denso en Qdrant (colecciones <code class="t">ultron_memory</code> y
+      <code class="t">ultron_catalog</code>, E5 1024-d); se retiró con toda la ruta densa.
     </p>
 
     <div class="layers">
@@ -902,24 +898,14 @@
       </div>
       <div class="layer">
         <div>
-          <div class="ln">ultron_memory</div>
-          <div class="lr">índice denso derivado</div>
+          <div class="ln">memory_items_fts</div>
+          <div class="lr">índice léxico derivado</div>
         </div>
         <div class="ld">
-          Colección Qdrant de los ítems ACTIVE embebidos con MultilingualE5Large (1024 dimensiones),
-          con payload filtrable (status, scope, project). Reconstruible con
-          <code>reindex_all</code>; el id del punto es el id canónico del ítem. Nunca es la verdad.
-        </div>
-      </div>
-      <div class="layer">
-        <div>
-          <div class="ln">ultron_catalog</div>
-          <div class="lr">índice de capacidades</div>
-        </div>
-        <div class="ld">
-          Misma infraestructura E5 1024-d, pero indexa las fichas de
-          <code>~/.claude/agents/*.md</code> y las skills habilitadas. Es lo que el orquestador
-          consulta para escoger especialista por similitud (sección 08).
+          Tabla virtual FTS5 de contenido externo sobre <code>memory_items</code>, mantenida por
+          triggers (<code>PRAGMA recursive_triggers=ON</code> hace que el
+          <code>INSERT OR REPLACE</code> dispare el de borrado). Reconstruible con
+          <code>fts-rebuild</code>. Nunca es la verdad.
         </div>
       </div>
     </div>
@@ -930,97 +916,81 @@
 <section id="recall">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-kicker"><span class="num">02</span><span>Recuperación híbrida + score-floor</span><span class="rule"></span></div>
-      <h2>Denso y disperso, fusionados por rango — y filtrados por relevancia.</h2>
+      <div class="sec-kicker"><span class="num">02</span><span>Recuperación léxica + suelo de relevancia</span><span class="rule"></span></div>
+      <h2>Léxico, ponderado por calidad — y filtrado por relevancia.</h2>
       <p class="sec-sub">
-        Hay <b>un único</b> camino de recuperación. Consulta dos fuentes en paralelo y las combina
-        con <b>Reciprocal Rank Fusion</b>. El resultado no es texto crudo: es un <em>context
-        pack</em> de resúmenes bajo un presupuesto de tokens — y solo entra lo que <b>supera el
-        suelo de relevancia</b>.
+        Hay <b>un único</b> camino de recuperación: FTS5/BM25 sobre <code class="t">brain.db</code>.
+        El rango BM25 se puntúa con la fórmula de <b>Reciprocal Rank Fusion</b>, se pondera por
+        calidad y pasa por los gates de gobernanza. El resultado no es texto crudo: es un
+        <em>context pack</em> de resúmenes bajo un tope de tokens — y solo entra lo que
+        <b>supera el suelo de relevancia</b>.
       </p>
     </div>
 
     <div class="fig">
-      <div class="fig-cap"><span>Pipeline de recall · build_trace()</span><span class="id">recall_unified.rs</span></div>
+      <div class="fig-cap"><span>Pipeline de recall · build_trace()</span><span class="id">recall_unified/</span></div>
       <div class="fig-body">
         <div class="flow v">
-          <div class="col2">
-            <div class="node">
-              <div class="nb"><span>fuente A · densa</span><span>k=30</span></div>
-              <div class="nt">E5 query → Qdrant k-NN</div>
-              <div class="nd">Embedding de la consulta (prefijo <code>query:</code>), filtro <code>status=active</code> (+ proyecto). Devuelve ids + coseno real.</div>
-            </div>
-            <div class="node">
-              <div class="nb"><span>fuente B · dispersa</span><span>k=30</span></div>
-              <div class="nt">FTS5 / bm25</div>
-              <div class="nd">Búsqueda léxica term-OR sobre los <code>memory_items</code> ACTIVE en brain.db. Ids ordenados best-first.</div>
-            </div>
+          <div class="node">
+            <div class="nb"><span>fuente · dispersa</span><span>k=30 (×12 bajo proyecto)</span></div>
+            <div class="nt">FTS5 / bm25</div>
+            <div class="nd">Búsqueda léxica term-OR sobre los <code>memory_items</code> ACTIVE en brain.db. Ids ordenados best-first; bajo filtro de proyecto el pool se ensancha para que los ítems del proyecto lleguen a los gates.</div>
           </div>
-          <div class="arrow v"><span>↓</span><span class="lab">dos listas ordenadas</span></div>
+          <div class="arrow v"><span>↓</span><span class="lab">lista ordenada</span></div>
           <div class="node lead">
-            <div class="nb"><span>fusión</span><span>RRF · k=60</span></div>
-            <div class="nt">score(d) = Σ 1 / (k + rank + 1)</div>
-            <div class="nd">Suma el aporte de cada fuente por id; lo que aparece en AMBAS sube. Empate de score RRF → desempata el coseno E5 real; luego, estable por id.</div>
+            <div class="nb"><span>puntuación</span><span>RRF · k=60</span></div>
+            <div class="nt">score(d) = 1 / (k + rank + 1) × calidad</div>
+            <div class="nd">Multiplicadores de confianza, frescura (últimos 7 días), ítems ambiente y hubs. Empate → estable por id.</div>
           </div>
-          <div class="arrow v"><span>↓</span><span class="lab">score-floor · descarta lo irrelevante</span></div>
+          <div class="arrow v"><span>↓</span><span class="lab">suelo de relevancia · descarta la cola léxica</span></div>
           <div class="node lead">
             <div class="nb"><span>ensamblado</span><span>assemble_pack()</span></div>
-            <div class="nt">Gobernanza + relevancia + presupuesto</div>
-            <div class="nd">Límite · status=active · scope de proyecto · gate temporal (vigente) · vault off · gate de secreto · <b>suelo de relevancia</b> · presupuesto 1500 tokens. Solo resúmenes; el contenido completo es lazy.</div>
+            <div class="nt">Gobernanza + relevancia + tope por llamada</div>
+            <div class="nd">Límite · status=active · scope de proyecto · gate temporal (vigente) · vault off · gate de secreto · trust gate · <b>suelo de relevancia</b> · tope de 1500 tokens por llamada. Solo resúmenes; el contenido completo es lazy.</div>
           </div>
         </div>
       </div>
     </div>
 
-    <h4>Por qué RRF y no sumar puntuaciones</h4>
+    <h4>De dos fuentes a una</h4>
     <p>
-      RRF combina por <b>rango</b>, no por puntuación bruta, así que no hay que normalizar escalas
-      incompatibles —el coseno de E5 contra el bm25 de FTS5—. Un documento relevante en ambas
-      fuentes gana de forma natural. La constante de amortiguación <code class="t">k = 60</code> es
-      el valor estándar. ULTRON añade un desempate fino: ante igual score RRF, gana el de mayor
-      similitud coseno real, una señal de calidad continua sobre el rango discreto.
+      Hasta el 2026-11-14 el recall fusionaba con RRF una fuente densa (E5 + Qdrant) y esta
+      dispersa. La densa se apagó el 2026-09-28 por RAM (el daemon pasó de ~3,3 GB a unas decenas
+      de MB) y después se retiró del código: el golden recall@8 sparse vale 0,131 frente al 0,744
+      que daba denso+rerank, un precio aceptado. La fórmula de RRF se conserva sobre una sola
+      fuente porque da una escala acotada y estable a la que aplicar los multiplicadores de calidad.
     </p>
 
-    <h4>El score-floor — traer poco y bueno</h4>
+    <h4>El suelo de relevancia — traer poco y bueno</h4>
     <p>
-      Fusionar y ordenar no basta: si la consulta no tiene buenos resultados, el top-K sigue
-      teniendo K entradas — solo que <b>malas</b>. Sin un suelo, el pack se rellenaría con
-      recuerdos que no vienen a cuento (el ruido que arruina la memoria). Por eso
-      <code class="t">assemble_pack</code> aplica un <b>umbral mínimo de relevancia</b>: un
-      candidato fusionado que no lo supera <b>se descarta</b>, con su motivo registrado. El sistema
-      prefiere devolver <b>cuatro recuerdos pertinentes que ocho a medias</b>. El contexto que llega
-      a la IA es corto, denso y verificado.
+      Ordenar no basta: si la consulta no tiene buenos resultados, el top-K sigue teniendo K
+      entradas — solo que <b>malas</b>. Sin un suelo, el pack se rellenaría con recuerdos que no
+      vienen a cuento. Por eso <code class="t">assemble_pack</code> descarta todo candidato cuyo
+      rango BM25 cae en la <b>cola léxica</b> (comparte un término suelto con la consulta), con su
+      motivo registrado; y si la consulta trae un término informativo que el corpus no conoce, el
+      recall <b>se abstiene</b> y lo declara. El sistema prefiere devolver <b>pocos recuerdos
+      pertinentes que ocho a medias</b>.
     </p>
 
     <pre>
-      <span class="head">commands/memory/recall_unified.rs — fusión + suelo de relevancia</span>
-      <code><span class="k">const</span> <span class="n">RRF_K</span>: f32 = <span class="n">60.0</span>;          <span class="c">// amortiguación estándar</span>
-<span class="k">const</span> <span class="n">FANOUT_K</span>: usize = <span class="n">30</span>;         <span class="c">// top-K de cada fuente antes de fusionar</span>
-<span class="k">const</span> <span class="n">DEFAULT_LIMIT</span>: usize = <span class="n">8</span>;       <span class="c">// máximo de entradas inyectadas</span>
-<span class="k">const</span> <span class="n">SCORE_FLOOR</span>: f32 = <span class="n">…</span>;          <span class="c">// suelo de relevancia: por debajo, se descarta</span>
-<span class="k">const</span> <span class="n">TOKEN_BUDGET</span>: i64 = <span class="n">1500</span>;     <span class="c">// presupuesto del context pack (solo resúmenes)</span>
+      <span class="head">commands/memory/recall_unified/ — puntuación + suelo de relevancia</span>
+      <code><span class="k">const</span> <span class="n">RRF_K</span>: f32 = <span class="n">60.0</span>;               <span class="c">// amortiguación estándar</span>
+<span class="k">const</span> <span class="n">FANOUT_K</span>: usize = <span class="n">30</span>;              <span class="c">// top-K de BM25 antes de ensanchar</span>
+<span class="k">const</span> <span class="n">SPARSE_TAIL_CUTOFF</span>: usize = <span class="n">3</span>;     <span class="c">// suelo: solo pasa el top-3 de BM25</span>
+<span class="k">const</span> <span class="n">PER_CALL_TOKEN_CAP</span>: i64 = <span class="n">1500</span>;  <span class="c">// tope del context pack por llamada</span>
 
-<span class="c">// en assemble_pack(): un candidato bajo el suelo no entra, aunque haya hueco</span>
-<span class="k">if</span> fused_score &lt; <span class="n">SCORE_FLOOR</span> {
-    discarded.push(discard(<span class="s">"below relevance floor"</span>));
+<span class="c">// en assemble_pack(): un candidato de la cola léxica no entra, aunque haya hueco</span>
+<span class="k">if</span> fh.sparse_rank.is_some_and(|r| r &gt;= <span class="n">SPARSE_TAIL_CUTOFF</span>) {
+    discarded.push(discard(<span class="s">"below relevance floor (BM25 tail)"</span>));
     <span class="k">continue</span>;
 }</code>
     </pre>
 
-    <div class="call">
-      <div class="cl">Degradación limpia</div>
-      <p>
-        Si E5/Qdrant no está disponible —vector cero o servicio caído— la fuente densa devuelve
-        una lista vacía y el recall sigue funcionando <b>solo con sparse</b>. Se añade un warning al
-        trace, pero nunca falla. La verdad está en SQLite; el índice es un acelerador.
-      </p>
-    </div>
-
     <h4>El «por qué esta memoria»: la traza de recall</h4>
     <p>
       El mismo núcleo expone la traza (<code class="t">ultron-memory trace</code>), que devuelve el trace completo y
-      auditable de cada turno: el orden de cada fuente, los scores RRF, lo inyectado <em>con su
-      razón</em> —<code class="t">"dense#2 + sparse#5"</code>— y lo descartado <em>con el
+      auditable de cada turno: el rango BM25, los scores RRF, lo inyectado <em>con su
+      razón</em> —<code class="t">"sparse#2"</code>— y lo descartado <em>con el
       motivo exacto</em> (límite, fuera de proyecto, vault, secreto, <b>bajo el suelo</b>, presupuesto).
     </p>
 
@@ -1032,7 +1002,7 @@
       <code class="t">cross_project</code> se relaja <b>únicamente</b> el filtro de proyecto: todo lo
       demás sigue intacto, sobre todo <b>el gate de secreto</b> — un ítem Secret de otro proyecto
       <b>nunca</b> entra. La invariante <b>«cross relaja el proyecto, no la seguridad»</b> está
-      cubierta por un test que corre sin Qdrant.
+      cubierta por un test hermético.
     </p>
   </div>
 </section>
@@ -1100,7 +1070,7 @@
     <h3>Contradicciones y caducidad</h3>
     <p>
       Cuando un candidato propone algo, un detector busca los ítems ACTIVE más cercanos (mismo
-      scope y proyecto; por vectores con el denso activo y por FTS5 con <code>ULTRON_DENSE=0</code>)
+      scope y proyecto, por FTS5; los vecinos por vectores se retiraron con la ruta densa el 2026-11-14)
       y le pregunta a un juez LLM si alguno <b>choca</b> con la propuesta. Si lo hay, el candidato
       no se rechaza ni se auto-resuelve (salvo que actives <code>auto_supersede</code>, apagado por
       defecto, y sea una actualización 1:1 clara de un único ítem): pasa a
@@ -1156,7 +1126,7 @@
           <div class="node lead">
             <div class="nb"><span>gate de escritura</span></div>
             <div class="nt">Secreto redactado<br/>sensitivity = Secret</div>
-            <div class="nd">No llega en claro ni a brain.db ni a Qdrant. Monótono: nunca se degrada.</div>
+            <div class="nd">No llega en claro a brain.db. Monótono: nunca se degrada.</div>
           </div>
           <div class="arrow"><span>recall →</span></div>
           <div class="node lead">
@@ -1170,7 +1140,7 @@
 
     <h4>Escritura · detector sin dependencias</h4>
     <p>
-      Antes de persistir cualquier texto y antes de generar embeddings, un detector recorre las
+      Antes de persistir cualquier texto, un detector recorre las
       palabras y reconoce formas de credencial por prefijo —anthropic, openai, github, google,
       aws, slack, gitlab—, además de asignaciones <code class="t">key=value</code>, cabeceras
       <code class="t">Bearer</code>, bloques PEM de clave privada y secretos descritos en prosa
@@ -1386,7 +1356,7 @@
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-kicker"><span class="num">07</span><span>Routing de skills / agentes · Diseño (no activo)</span><span class="rule"></span></div>
-      <h2>Las skills se cargan bajo demanda; el dispatcher automático está desconectado.</h2>
+      <h2>Las skills se cargan bajo demanda; el dispatcher automático se retiró.</h2>
       <p class="sec-sub">
         Las skills están <b>desactivadas por defecto</b> para no inflar cada sesión. Hasta el
         2026-09-29, un dispatcher las puntuaba contra cada prompt y, cuando una destacaba,
@@ -1394,11 +1364,9 @@
         está cableado: lo que sigue en esta sección es el <b>diseño</b>, contado en pasado.
       </p>
       <p class="sec-sub">
-        <b>Estado real:</b> el hook <code>routing-dispatcher</code> no está registrado en
-        <code>settings.json</code> desde el 2026-09-29, y el recall denso (E5 + Qdrant), del que
-        dependía el motor semántico, está apagado desde el 2026-09-28 (<code>ULTRON_DENSE=0</code>). Hoy solo lo
-        ejecutan los arneses (<code>_verify_final.js</code>, <code>_accuracy_at3.js</code>), el CI y los
-        benchmarks, y ninguna skill de <code>_disabled/</code> se inyecta sola. Lo que sí carga bajo
+        <b>Estado real:</b> el dispatcher de skills se desconectó el 2026-09-29 y se borró
+        del repo el 2026-11-14, y el recall denso (E5 + Qdrant), del que
+        dependía el motor semántico, se apagó el 2026-09-28 y se retiró del código el mismo 2026-11-14. Ninguna skill de <code>_disabled/</code> se inyecta sola. Lo que sí carga bajo
         demanda es la <b>pool de skills de terceros</b>: <code>/skill &lt;nombre&gt;</code> inyecta una
         skill de <code>~/.ultron/skill-pool</code> (SHA fijado y revisión de seguridad,
         <code>scripts/skill-pool.mjs</code>) y ofrece enlazarla al proyecto, nunca de forma global.
@@ -1432,12 +1400,12 @@
       motor <b>semántico</b>: un <b>daemon residente</b> con el modelo E5 caliente comparaba el prompt
       contra el catálogo de skills indexado (incluidas las apagadas) y devolvía el mejor match.
       Reusaba la infraestructura E5 del recall y respondía en ~40 ms en caliente. Con el denso
-      apagado desde el 2026-09-28, ese motor semántico ya no tiene modelo que consultar; el
-      determinista solo se ejecuta en los arneses y el CI.
+      apagado desde el 2026-09-28, ese motor semántico se quedó sin modelo; los dos motores, sus
+      arneses y su job de CI se borraron el 2026-11-14.
     </p>
 
     <div class="fig">
-      <div class="fig-cap"><span>Diseño (no activo) · UserPromptSubmit · determinista → (si duda) semántico → inyección</span><span class="id">routing-dispatcher.v{2,3}.js</span></div>
+      <div class="fig-cap"><span>Diseño (no activo) · UserPromptSubmit · determinista → (si duda) semántico → inyección</span><span class="id">dispatcher v2/v3 (borrado)</span></div>
       <div class="fig-body">
         <div class="flow">
           <div class="node">
@@ -1473,8 +1441,8 @@
         Si el registry no existía o fallaba la lectura, el dispatcher se comportaba como su versión
         base (sugerencia sin inyección). El Nivel 1 es reversible con un flag, y las skills
         de <code class="t">_disabled/</code> nunca se enrutaban en el plano determinista: no se inyectaba
-        una capacidad apagada salvo que el motor semántico la trajera a propósito. Volver a cablear el
-        dispatcher es una decisión pendiente, no un arreglo.
+        una capacidad apagada salvo que el motor semántico la trajera a propósito. Recuperar el
+        dispatcher del historial de git sería una decisión, no un arreglo.
       </p>
     </div>
   </div>
@@ -1494,8 +1462,8 @@
         <b>emite una orden de delegación</b> y el agente la ejecuta con <code class="t">Agent()</code>.
       </p>
       <p class="dim" style="font-size:13px">
-        Solo con <code>ULTRON_ORCHESTRATE=full</code>: en el modo ligero por defecto, el hook
-        <code>memory-orchestrate</code> no llama al orquestador y solo inyecta el tono.
+        Ya no corre por prompt: desde el 2026-11-14 el hook <code>memory-orchestrate</code> no llama al
+        orquestador y solo inyecta el tono.
       </p>
     </div>
 
@@ -1516,14 +1484,14 @@
               <div class="nd">Reglas por patrón (bilingüe es/en), primer match gana. No se gasta un modelo grande en lo que resuelven reglas. Devuelve (intent, workflow_id).</div>
             </div>
             <div class="node">
-              <div class="nb"><span>paso 2 · semántico</span></div>
-              <div class="nt">search_catalog()</div>
-              <div class="nd">Búsqueda E5 sobre <code>ultron_catalog</code> (agentes + skills). Top-5 especialistas reales por similitud, rebalanceados por intención.</div>
+              <div class="nb"><span>paso 2 · por regla</span></div>
+              <div class="nt">inject_preferred_floor()</div>
+              <div class="nd">Especialistas que prefiere el intent, filtrados contra los agentes reales de <code>~/.claude/agents/</code>. La búsqueda semántica sobre <code>ultron_catalog</code> se retiró el 2026-11-14.</div>
             </div>
             <div class="node">
               <div class="nb"><span>paso 3 · contexto</span></div>
               <div class="nt">build_trace()</div>
-              <div class="nd">Recall híbrido (sección 02) con score-floor para traer solo las memorias relevantes, ya con presupuesto de tokens.</div>
+              <div class="nd">Recall FTS5 (sección 02) con suelo de relevancia para traer solo las memorias relevantes, ya con tope de tokens.</div>
             </div>
           </div>
           <div class="arrow v"><span>↓</span></div>
@@ -1551,8 +1519,7 @@
       Toda esa telemetría tiene un punto de consumo visible: el <b>Monitor de sesiones</b> del
       Control Center. Cada tarjeta de sesión muestra un <b>resumen real</b> del último turno
       (generado por el router, zona <code class="t">summarize</code> — no un truncado de 200
-      caracteres), el bloque de orquestación de esa sesión (intent · workflow · agentes · skills ·
-      memoria) y dos listas de subagentes: <b>activos</b> —en vuelo ahora mismo, emparejando
+      caracteres), y el panel global suma dos listas de subagentes: <b>activos</b> —en vuelo ahora mismo, emparejando
       <code class="t">SubagentStart</code>/<code class="t">Stop</code> por <code class="t">agent_id</code>—
       y <b>recientes</b>, con agente, etiqueta y tamaño del resultado. La pestaña Agents añade la
       tira «uso real por agente»: quién se invoca, cuántas veces, con los wrappers genéricos
@@ -1617,7 +1584,7 @@
       <h2>Operar sin adivinar.</h2>
       <p class="sec-sub">
         <code class="t">ultron-memory doctor</code> es un comando de salud. Cada chequeo es una
-        función pura que <b>solo lee</b> —brain.db, Qdrant REST, disco, filesystem— y nunca muta. La
+        función pura que <b>solo lee</b> —brain.db, disco, filesystem— y nunca muta. La
         severidad agregada se mapea al código de salida del proceso, así que CI puede ramificar:
         <span class="mono">0 = ok</span>, <span class="mono">1 = warn</span>, <span class="mono">2 = error</span>.
       </p>
@@ -1628,9 +1595,7 @@
       <tbody>
         <tr><td><code>sqlite</code></td><td>brain.db abre, integrity_check, user_version</td><td><span class="dim">integrity = ok</span></td></tr>
         <tr><td><code>fts</code></td><td>índice FTS5 (<code>memory_items_fts</code>) frente a la tabla de ítems</td><td><span class="dim">integrity ok · filas FTS = filas de ítems</span></td></tr>
-        <tr><td><code>qdrant</code></td><td>con <code>ULTRON_DENSE=0</code>, un único ok que declara el apagado; con el denso, una sonda por colección (status, dim, points)</td><td><span class="dim">green · dim correcta</span></td></tr>
-        <tr><td><code>reconcile</code></td><td>drift SQLite ↔ Qdrant (missing / orphan); solo se emite con el denso encendido</td><td><span class="dim">in_sync · counts iguales</span></td></tr>
-        <tr><td><code>evals</code></td><td>recall@8 + gate de seguridad, con suelos distintos según el modo</td><td><span class="dim">sparse: golden ≥ 0,10 y smoke ≥ 0,90 · denso: golden ≥ 0,42 · leaks = 0</span></td></tr>
+        <tr><td><code>evals</code></td><td>recall@8 + gate de seguridad (suelos de regresión del recall sparse)</td><td><span class="dim">golden ≥ 0,10 y smoke ≥ 0,90 · leaks = 0</span></td></tr>
         <tr><td><code>versions</code></td><td>anti stale-binary: ¿corre el binario desplegado? ¿se compiló con cambios sin commitear (<code>dirty</code>)?</td><td><span class="dim">en uso = desplegado · sin dirty</span></td></tr>
         <tr><td><code>disk</code></td><td>espacio libre en el volumen de ~/.ultron</td><td><span class="dim">≥ 5 GB</span></td></tr>
       </tbody>
@@ -1656,10 +1621,10 @@
         derivadas del propio índice): vigila regresiones del pipeline. Aparte existe un
         <b>oráculo externo</b> de queries reales etiquetadas a mano contra hechos conocidos, que a
         2026-07-04, con el híbrido y el re-ranker cross-encoder, medía <b>recall@8 = 0.709</b> y
-        precision@3 = 0.483, todavía lejos del objetivo 0.95. Con el denso apagado (desde el
-        2026-09-28) el golden v1 en modo sparse da <b>0,131</b>: es el precio aceptado de no
-        cargar E5, y el harness de evaluación (<code class="t">kirkardo-eval</code>) retira los
-        checks del híbrido solo mientras esa decisión siga en vigor, verificada en ejecución. Un
+        precision@3 = 0.483, todavía lejos del objetivo 0.95. Con la ruta densa apagada el
+        2026-09-28 y retirada del código el 2026-11-14, el golden v1 sparse da <b>0,131</b>
+        (0,744 con denso+rerank): es el precio aceptado de no cargar E5, y el harness de evaluación
+        (<code class="t">kirkardo-eval</code>) tiene retirados los checks del híbrido. Un
         sistema que solo publica su eval fácil se está mintiendo.
       </p>
     </div>
@@ -1673,10 +1638,10 @@
       <div class="sec-kicker"><span class="num">11</span><span>Rendimiento y límites físicos</span><span class="rule"></span></div>
       <h2>Rápido en caliente. Honesto con la física.</h2>
       <p class="sec-sub">
-        ULTRON exprime el hardware manteniendo el modelo de significado <b>residente</b>: la
-        orquestación completa en caliente mide p50 ≈ 130–180 ms e2e (harness cat9, 2026-07-03,
-        daemon E5 residente). Pero hay dos costes que son de <b>física, no de
-        diseño</b> — y se declaran, no se esconden.
+        La orquestación completa en caliente midió p50 ≈ 130–180 ms e2e (harness cat9,
+        2026-07-03, con el daemon E5 residente de entonces). Sin la ruta densa (retirada el
+        2026-11-14) el recall es FTS5 y no carga modelos. Queda un coste que es de <b>física, no de
+        diseño</b> — y se declara, no se esconde.
       </p>
     </div>
 
@@ -1690,8 +1655,8 @@
         <div class="v">≤ 1500 tok <span class="u">· solo resúmenes</span></div>
       </div>
       <div class="cell">
-        <div class="k">Fallback skills</div>
-        <div class="v">~40 ms <span class="u">· daemon E5</span></div>
+        <div class="k">Modelos en RAM</div>
+        <div class="v">0 <span class="u">· recall solo FTS5</span></div>
       </div>
       <div class="cell">
         <div class="k">Memoria</div>
@@ -1700,24 +1665,21 @@
     </div>
 
     <div class="call">
-      <div class="cl">Límite 1 · arranque en frío del modelo</div>
+      <div class="cl">Histórico · arranque en frío del modelo</div>
       <p>
-        En caliente, el contexto se inyecta en decenas de milisegundos. Pero el <b>primer</b> recall
-        de una sesión carga en RAM el modelo de embeddings E5-large (<b>~2,2 GB</b>): ese arranque
-        cuesta ~3–11 s medidos (según presión de I/O) y no baja de ~500 ms por mucho que se optimice
-        el código — es coste de I/O y de inicializar el runtime ONNX en CPU. La mitigación (pre-calentar el daemon en
-        <code class="t">SessionStart</code>) es trabajo de hardware/arranque, no de lógica.
+        Con la ruta densa, el <b>primer</b> recall de una sesión cargaba en RAM el modelo de
+        embeddings E5-large (<b>~2,2 GB</b>): ~3–11 s medidos, coste de I/O y de inicializar el
+        runtime ONNX en CPU. Desapareció al retirar la ruta densa el 2026-11-14.
       </p>
     </div>
 
     <div class="call">
-      <div class="cl">Límite 2 · tiempo de build</div>
+      <div class="cl">Límite · tiempo de build</div>
       <p>
-        Compilar el sistema lleva su tiempo: el grueso son las dependencias del propio stack —el
-        crate de embeddings E5, el runtime ONNX, Tauri— que suman la mayor parte <em>antes</em> de
-        compilar una sola línea propia. No se puede bajar sin arrancar dependencias que <b>son</b> el
-        núcleo (el embedding E5 ES la memoria). Es un coste del stack y del hardware, medible y
-        repetible, no un fallo.
+        Compilar el sistema lleva su tiempo: el grueso son las dependencias del propio stack
+        —Tauri sobre todo— que suman la mayor parte <em>antes</em> de compilar una sola línea
+        propia. El crate de embeddings y el runtime ONNX salieron con la ruta densa. Es un coste
+        del stack y del hardware, medible y repetible, no un fallo.
       </p>
     </div>
 
@@ -1739,12 +1701,12 @@
   <div class="wrap">
     <div class="ftitle">Cómo está hecho · leído del código real</div>
     <div class="files">
-      <code><b>Memoria:</b> memory/{service, sqlite_store, qdrant_index, redaction, capture}.rs · brain.db (SQLite + FTS5)</code>
-      <code><b>Recall:</b> commands/memory/recall_unified/ (RRF + score-floor + tope por llamada PER_CALL_TOKEN_CAP)</code>
+      <code><b>Memoria:</b> memory/{service, sqlite_store, redaction, capture, doctor}.rs · brain.db (SQLite + FTS5)</code>
+      <code><b>Recall:</b> commands/memory/recall_unified/ (FTS5/BM25 + puntuación RRF + suelo de relevancia + tope por llamada PER_CALL_TOKEN_CAP)</code>
       <code><b>AI Router:</b> ai_router/providers/routing.rs · cockpit/ai-router/{providers,zones,metrics}.json</code>
-      <code><b>Skills lazy:</b> cockpit/skill-lazy/routing-dispatcher.v{2,3}.js (desconectado) · scripts/skill-pool.mjs (/skill)</code>
-      <code><b>Orquestador:</b> orchestrator/ · ultron_catalog (E5) · memory-orchestrate.js</code>
-      <code><b>Núcleo:</b> ultron-memory (Rust) · Qdrant nativo (E5 1024-d, opcional con ULTRON_DENSE=0)</code>
+      <code><b>Skills lazy:</b> scripts/skill-pool.mjs (/skill)</code>
+      <code><b>Orquestador:</b> orchestrator/ · memory/catalog.rs (frontmatter de agentes) · memory-orchestrate.js</code>
+      <code><b>Núcleo:</b> ultron-memory (Rust) · recall solo FTS5 (ruta densa retirada el 2026-11-14)</code>
     </div>
     <div class="meta">
       Página estática autocontenida · CSS inline · sin dependencias de red · sin JavaScript.<br/>

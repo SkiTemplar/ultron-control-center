@@ -81,7 +81,7 @@ export async function runR3Selftest({ assert, ROOT }) {
   // 2026-11-01: la metrica del pilar 2 pesa, y una fuga de datos personales gatea.
   assert(A.areaOf({ id: "2.6" }, 2) === "codegraph-skills" && A.areaWeight(A.areaOf({ id: "2.6" }, 2)) > 0, "2.6 consumo real de CodeGraph puntua en un area con peso");
   assert(A.areaOf({ id: "6.1" }, 6) === "hooks" && A.areaOf({ id: "6.2" }, 6) === "hooks", "6.1 y 6.2 (mandamiento 9) puntuan en hooks y seguridad");
-  const guards = ["3.1", "10.1", "10.3", "10.5", "11.5", "12.2", "12.4", "13.1", "14.1", "14.2", "14.5", "17.1", "17.2", "18.1", "18.2", "18.4"];
+  const guards = ["3.1", "10.3", "10.5", "11.5", "12.2", "12.4", "13.1", "14.1", "14.2", "14.5", "17.1", "17.2", "18.1", "18.2", "18.4"];
   assert(guards.every((id) => A.areaWeight(A.CHECK_AREA[id]) === 0), "los checks de existencia o texto pesan 0", guards.filter((id) => A.areaWeight(A.CHECK_AREA[id]) !== 0).join(","));
   assert(A.areaOf({ id: "10.8" }, 10) === "ui" && A.areaOf({ id: "23.1" }, 23) === "sessions", "los checks de comportamiento siguen en su area (caso negativo)");
 

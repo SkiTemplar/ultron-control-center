@@ -43,8 +43,8 @@ The one-liners, the pinned-tag variant and what they download are in
 [`INSTALL.md` §2](../INSTALL.md#2-bootstrap-one-liner) at the repo root,
 which is the canonical install guide; this page is the longer walkthrough of
 what the installer does and how to recover. In short: the release lags
-`main` (latest release v15.7.0 from 2026-07-18 as of 2026-10-23, app 15.8.0 on
-`main`), and the public mirror has no Releases yet, so the clone path above is
+`main` between cuts (latest release v15.9.0, cut on 2026-11-12 with core and
+app on the same version), and the public mirror has no Releases yet, so the clone path above is
 the one to use.
 
 ## What the installer does
@@ -62,18 +62,15 @@ non-zero code.
    CLI. Missing tools are auto-installed where possible (winget on Windows;
    apt/dnf/pacman on Linux). If a required tool cannot be installed
    automatically, it points you at the official documentation and exits.
-3. **Qdrant.** Downloads the native Qdrant binary (no Docker) into
-   `~/.ultron/qdrant-native/`. Skipped with `-NoDocker` — semantic recall
-   then stays off.
-4. **Directory layout.** Creates `~/.ultron/` with subdirectories
-   (`cockpit/`, `plans/`, `skills/`, `scripts/`, `brain_index/`, `.tmp/`,
+3. **Directory layout.** Creates `~/.ultron/` with subdirectories
+   (`cockpit/`, `plans/`, `skills/`, `scripts/`, `.tmp/`,
    `personal/`) and wires `~/.claude/skills`. Existing directories are left
    untouched.
 5. **Hooks.** Merges the Claude Code lifecycle hooks into
    `~/.claude/settings.json` (a timestamped `.bak` is written first).
 6. **Skills picker.** Installs the core skill set into `~/.claude/skills/`
    and prompts to opt into the personal/community ones.
-7. **brain_index.** Initializes the SQLite FTS5 memory index.
+7. **Memory.** `brain.db` (SQLite + FTS5) is created by `ultron-memory` on first use.
 8. **Feature toggles.** The visual wizard (or CLI fallback) asks per
    optional module (Gaming, Personal, Schedules, Self-improve,
    Notifications, Usage, Sessions, Projects, Plans) and writes your
@@ -282,8 +279,6 @@ package database.
 | Desktop binary (AppImage) | `~/.local/bin/ultron-control-center` (renamed from the downloaded `.AppImage`, marked `+x`) |
 | Desktop binary (.deb install) | `/usr/bin/ultron-control-center` (laid down by `dpkg`) |
 | `.desktop` launcher | `~/.local/share/applications/ultron-control-center.desktop` — picked up by GNOME / KDE / XFCE menus on next session |
-| Qdrant native binary | `~/.ultron/qdrant-native/qdrant` (Linux ELF, not the `.exe` from the Windows release) |
-| Qdrant config | `~/.ultron/qdrant-native/config/production.yaml` (same shape as Windows) |
 | Skills / agents / hooks | `~/.claude/skills/`, `~/.claude/agents/`, hook scripts referenced by `~/.claude/settings.json` |
 | Vault & state | `~/.ultron-vault/`, `~/.ultron/` — identical to Windows |
 
@@ -299,8 +294,6 @@ unknown-kind error elsewhere. The cross-platform ones (`skill-security-audit`,
 Hooks: every Claude Code hook ULTRON registers is a Node script under
 `hooks/scripts/` and runs identically on Linux (`install.sh` merges
 `templates/settings-hooks.json` with `{USERPROFILE}` expanded to `$HOME`).
-The Qdrant boot helper has a bash sibling (`scripts/qdrant/ensure-qdrant.sh`),
-but it is not a hook.
 
 ### Removing ULTRON on Linux
 

@@ -9,14 +9,13 @@
 // work. Tauri commands / the CLL / the candidate-extraction hook all call here.
 //
 // Module layout:
-//   mod.rs       — types, shared helpers (raised_sensitivity, sync_index, …)
+//   mod.rs       — types, shared helpers (raised_sensitivity, redact_tags, …)
 //   candidates   — candidate intake (create, edit, list, approve, reject)
 //   mutations    — direct writes, mutations, reads, stats
 
 use serde::Serialize;
 
-use super::model::{Sensitivity, Status};
-use super::qdrant_index;
+use super::model::Sensitivity;
 use super::redaction;
 use super::MemoryItem;
 
@@ -55,8 +54,8 @@ pub struct MemoryStats {
 
 /// Outcome of [`MemoryService::deprecate_by_type`]: how many ACTIVE items of a
 /// given type matched and how many were deprecated, plus per-id failures. Used
-/// by the `deprecate` sidecar subcommand to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5 /
-/// Qdrant out of sync — each item still goes through the proven `set_status` path.
+/// by the `deprecate` sidecar subcommand to purge bloat (e.g. ~478 `codebase_fact`) without leaving FTS5
+/// out of sync — each item still goes through the proven `set_status` path.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BulkDeprecateResult {
     pub kind: String,
@@ -104,7 +103,7 @@ pub struct BackfillDeprecationsResult {
 /// (F1.8), que si mira `last_accessed_at` — columna que el recall unificado
 /// escribe via `touch_injected` desde el 2026-08-28.
 /// Each transition goes through the proven `set_status` path (FTS5 +
-/// Qdrant + event log stay consistent) and is reversible (`Restored`).
+/// event log stay consistent) and is reversible (`Restored`).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StaleSweepResult {
     pub older_than_days: i64,
@@ -170,20 +169,6 @@ fn raised_sensitivity(current: Sensitivity, secret_detected: bool) -> Sensitivit
         Sensitivity::Secret
     } else {
         current
-    }
-}
-
-/// Best-effort: keep the derived dense index (Qdrant `ultron_memory`) in step
-/// with a write to the SoT. ACTIVE items are (re)indexed; non-active items are
-/// removed. Errors are swallowed — `brain.db` is the source of truth and any
-/// drift is detectable/repairable via `reconcile`. (W4: closes the gap where a
-/// newly approved/edited/restored item never reached Qdrant until a manual
-/// `reindex_all`, so `in_sync` would drift on the first approval.)
-fn sync_index(item: &MemoryItem) {
-    if matches!(item.status, Status::Active) {
-        let _ = qdrant_index::index_item(item);
-    } else {
-        let _ = qdrant_index::remove_item(&item.id);
     }
 }
 
@@ -283,6 +268,6 @@ pub struct ApplyDeprecationDeadlinesResult {
     pub dry_run: bool,
     /// (entry_id, motivo) por entrada vencida que se dejó sin cerrar.
     pub skipped_reasons: Vec<(String, String)>,
-    /// (item_id, error) por item cuyo archivado falló (Qdrant/SQL); no aborta el lote.
+    /// (item_id, error) por item cuyo archivado falló (SQL); no aborta el lote.
     pub failed: Vec<(String, String)>,
 }

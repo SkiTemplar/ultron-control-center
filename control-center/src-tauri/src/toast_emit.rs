@@ -182,7 +182,7 @@ fn append_alert_line(source: &str, severity: &str, message: &str) -> Result<(), 
 
 /// First `max` characters of `s`. `String::truncate` cuts by bytes and
 /// panics when the cut falls inside a multibyte character (tildes, ñ).
-fn cap_chars(s: &str, max: usize) -> String {
+pub(crate) fn cap_chars(s: &str, max: usize) -> String {
     match s.char_indices().nth(max) {
         Some((idx, _)) => s[..idx].to_string(),
         None => s.to_string(),

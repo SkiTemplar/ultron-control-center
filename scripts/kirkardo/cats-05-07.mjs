@@ -6,7 +6,7 @@ import { existsSync, readFileSync, mkdtempSync, rmSync, statSync } from "node:fs
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import * as P from "./predicates.mjs";
-import { BIN, CC, CC_SRC, CC_TAURI, CLAUDE, HOME, HOOKS_MANIFEST, HOOKS_SCRIPTS, REPO, SKILL_LAZY, ULTRON, cat, countLines, fileExists, fwd, grepInFiles, readJSON, run, runDoctor, spawnHook } from "./core.mjs";
+import { BIN, CC, CC_SRC, CC_TAURI, CLAUDE, HOME, HOOKS_MANIFEST, HOOKS_SCRIPTS, REPO, ULTRON, cat, countLines, fileExists, fwd, readJSON, run, runDoctor, spawnHook } from "./core.mjs";
 
 // ---------------------------------------------------------------------------
 // CAT 5 — Limpieza de .ultron
@@ -76,22 +76,6 @@ cat(5, "Limpieza de .ultron", [
         }
       }
       return { pass: oldDirs.length === 0, detail: `${dirs.length} dirs total, ${oldDirs.length} > 30d` };
-    },
-  },
-  {
-    id: "5.4",
-    retiredBy: "dispatcher-off", // 2026-10-28: cuenta .bak de un script desconectado
-    desc: "0 archivos .bak de routing-dispatcher en ~/.claude/scripts ni en cockpit/skill-lazy (donde vive hoy)",
-    auto: true,
-    check() {
-      // El dispatcher vive en cockpit/skill-lazy desde 2026-06; ~/.claude/scripts
-      // solo guarda _retired-2026-06-10 (auditoria 2026-10-23, medidor-13).
-      const dirs = [join(CLAUDE, "scripts"), SKILL_LAZY].filter((d) => existsSync(d));
-      if (dirs.length === 0) return { pass: false, detail: "no medible: ni ~/.claude/scripts ni cockpit/skill-lazy existen" };
-      const baks = dirs.flatMap((d) => grepInFiles(/^/, d, [".bak"]).map((m) => m.file))
-        .filter((f) => /routing-dispatcher[^/\\]*\.bak$/.test(f));
-      const uniq = [...new Set(baks)];
-      return { pass: uniq.length === 0, detail: `${uniq.length} .bak de routing-dispatcher en ${dirs.length} dir(s)` };
     },
   },
 ]);

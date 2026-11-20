@@ -2,8 +2,7 @@
 //!
 //! `content_hash` is the canonical dedupe / idempotency key for a memory item:
 //! two items whose text normalizes to the same string get the same hash, so the
-//! write-path can detect exact duplicates and the Qdrant indexer can be made
-//! idempotent. The hash MUST be stable across runs, builds and platforms, so we
+//! write-path can detect exact duplicates and stay idempotent. The hash MUST be stable across runs, builds and platforms, so we
 //! use a fixed FNV-1a (64-bit) over the normalized bytes rather than the std
 //! `DefaultHasher` (SipHash, randomized/unspecified) or an extra crate. FNV-1a
 //! is dependency-free and deterministic; collision risk is negligible at this

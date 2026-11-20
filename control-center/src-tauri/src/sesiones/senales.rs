@@ -108,6 +108,12 @@ pub enum Senal {
     Actividad {
         agent_id: Option<String>,
     },
+    /// Texto, thinking o `stepEnd` del hilo principal del puente, con el
+    /// turno al que pertenece. Vale lo mismo que `Actividad { agent_id: None }`
+    /// y además prueba que ese turno sigue vivo aunque se diera por perdido.
+    ActividadTurno {
+        turn_id: String,
+    },
     // WP-ESTADO (seguidor; solo hilo principal: sin agentId ni isSidechain)
     TxTurnDuration,
     TxInterrumpido,

@@ -15,15 +15,15 @@
  *
  * ULTRON_PROJECTS_JSON_OVERRIDE (solo para selftests, mismo mecanismo que en
  * project-new.mjs / kanban.mjs) apunta a un projects.json temporal.
+ *
+ * La escritura va con el lock de fichero projects.json.lock compartido con la
+ * app y con los demas CLI (lib/projects-registry.mjs; auditoria 2026-11-08, #12).
  */
 
-import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { backupWithRetention, reportPruneFailures } from './lib/registry-backup.mjs';
+import { existsSync } from 'node:fs';
+import { readRegistry, registryPath, updateRegistry } from './lib/projects-registry.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REGISTRY = process.env.ULTRON_PROJECTS_JSON_OVERRIDE || join(__dirname, '..', 'cockpit', 'projects.json');
+const REGISTRY = registryPath();
 const MODES = new Set(['strict', 'light', 'off', 'uni']);
 
 function fail(msg) {
@@ -31,24 +31,32 @@ function fail(msg) {
   process.exit(1);
 }
 
+const projectsOf = (raw) => (Array.isArray(raw) ? raw : raw.projects || []);
+
 if (!existsSync(REGISTRY)) fail(`no existe ${REGISTRY}`);
-const raw = JSON.parse(readFileSync(REGISTRY, 'utf8'));
-const projects = Array.isArray(raw) ? raw : raw.projects || [];
 const [id, mode] = process.argv.slice(2);
 
 if (id === '--list' || !id) {
-  for (const p of projects) console.log(`${(p.socratic || 'strict').padEnd(7)} ${p.id}`);
+  for (const p of projectsOf(readRegistry(REGISTRY))) console.log(`${(p.socratic || 'strict').padEnd(7)} ${p.id}`);
   if (!id) console.log('\nUso: node scripts/project-socratic.mjs <id> <strict|light|off|uni>');
   process.exit(0);
 }
 if (!MODES.has(mode)) fail(`modo "${mode}" no valido (strict | light | off | uni)`);
-const entry = projects.find((p) => p.id === id);
-if (!entry) fail(`proyecto "${id}" no registrado (ids: ${projects.map((p) => p.id).join(', ')})`);
 
-const updated = projects.map((p) => (p.id === id ? { ...p, socratic: mode } : p));
-const doc = Array.isArray(raw) ? updated : { ...raw, projects: updated };
-reportPruneFailures('project-socratic', backupWithRetention(REGISTRY));
-const tmp = `${REGISTRY}.tmp`;
-writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n', 'utf8');
-renameSync(tmp, REGISTRY);
+try {
+  updateRegistry(
+    REGISTRY,
+    (raw) => {
+      const projects = projectsOf(raw);
+      if (!projects.some((p) => p.id === id)) {
+        fail(`proyecto "${id}" no registrado (ids: ${projects.map((p) => p.id).join(', ')})`);
+      }
+      const updated = projects.map((p) => (p.id === id ? { ...p, socratic: mode } : p));
+      return Array.isArray(raw) ? updated : { ...raw, projects: updated };
+    },
+    { tag: 'project-socratic' },
+  );
+} catch (e) {
+  fail(e.message);
+}
 console.log(`[project-socratic] ${id}: socratic = ${mode}`);

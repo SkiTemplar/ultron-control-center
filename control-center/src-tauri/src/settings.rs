@@ -10,7 +10,7 @@
 // content. The frontend works with structured JSON only.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 pub struct SettingsSnapshot {
     pub path: String,
     pub content: serde_json::Value,
+    /// Huella de los bytes leídos; el guardado la exige (concurrencia optimista).
+    pub content_hash: String,
     pub modified: Option<String>,
     pub size_bytes: u64,
     pub backup_dir: String,
@@ -132,7 +134,7 @@ fn iso_pretty(secs: u64) -> String {
     )
 }
 
-fn list_recent_backups(dir: &PathBuf) -> Vec<String> {
+fn list_recent_backups(dir: &Path) -> Vec<String> {
     if !dir.exists() {
         return Vec::new();
     }
@@ -161,22 +163,28 @@ fn list_recent_backups(dir: &PathBuf) -> Vec<String> {
 
 pub fn settings_read_inner() -> Result<SettingsSnapshot, String> {
     let path = claude_settings_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = fs::read_to_string(&path).map_err(|e| format!("read settings.json: {}", e))?;
+    let backup_dir = backups_dir().ok_or_else(|| "no HOME".to_string())?;
+    read_snapshot_at(&path, &backup_dir)
+}
+
+/// Lectura de [`settings_read_inner`] sobre rutas explícitas (testeable).
+fn read_snapshot_at(path: &Path, backup_dir: &Path) -> Result<SettingsSnapshot, String> {
+    let raw = fs::read_to_string(path).map_err(|e| format!("read settings.json: {}", e))?;
     let content: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse settings.json: {}", e))?;
-    let meta = fs::metadata(&path).ok();
+    let meta = fs::metadata(path).ok();
     let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
     let modified = meta.and_then(|m| m.modified().ok()).and_then(|t| {
         t.duration_since(std::time::UNIX_EPOCH)
             .ok()
             .map(|d| iso_pretty(d.as_secs()))
     });
-    let backup_dir = backups_dir().ok_or_else(|| "no HOME".to_string())?;
-    let recent_backups = list_recent_backups(&backup_dir);
+    let recent_backups = list_recent_backups(backup_dir);
 
     Ok(SettingsSnapshot {
         path: path.to_string_lossy().to_string(),
         content,
+        content_hash: content_hash(raw.as_bytes()),
         modified,
         size_bytes,
         backup_dir: backup_dir.to_string_lossy().to_string(),
@@ -185,12 +193,62 @@ pub fn settings_read_inner() -> Result<SettingsSnapshot, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Concurrencia optimista
+// ---------------------------------------------------------------------------
+//
+// Ajustes lee settings.json al montarse y guarda el objeto entero del borrador.
+// Si entretanto otro proceso (una sesión de Claude con update-config, un hook)
+// edita el fichero, guardar la foto vieja revertiría esa edición sin aviso
+// (auditoría 2026-11-08, hallazgo 27). La lectura devuelve la huella de los
+// bytes leídos y el guardado la exige: si el fichero ya no tiene esa huella,
+// se rechaza sin escribir nada. Queda una ventana mínima entre la comprobación
+// y el rename: cubre el caso real (minutos con la pestaña abierta), no dos
+// escritores en el mismo instante.
+
+/// Huella de un fichero que no existe.
+const MISSING_FILE_HASH: &str = "ausente";
+
+/// Huella de los bytes de settings.json. Solo se compara dentro del mismo
+/// binario (lectura y guardado), así que basta `DefaultHasher`, cuyas
+/// instancias de `new()` son deterministas en una misma ejecución; la longitud
+/// reduce aún más las colisiones.
+fn content_hash(bytes: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    format!("{:016x}-{}", hasher.finish(), bytes.len())
+}
+
+/// Huella del contenido actual en disco ([`MISSING_FILE_HASH`] si no existe).
+fn disk_hash(path: &Path) -> Result<String, String> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(content_hash(&bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(MISSING_FILE_HASH.to_string()),
+        Err(e) => Err(format!("read settings.json: {}", e)),
+    }
+}
+
+/// Huella actual de `~/.claude/settings.json`, para el llamante que guarda sin
+/// haber podido leer un snapshot (fichero ausente o corrupto).
+pub fn current_content_hash() -> Result<String, String> {
+    let path = claude_settings_path().ok_or_else(|| "no HOME".to_string())?;
+    disk_hash(&path)
+}
+
+/// Error del guardado cuando el fichero cambió en disco desde la lectura.
+pub const STALE_SETTINGS_ERROR: &str = "settings.json ha cambiado en disco desde que se leyó \
+     (otra sesión o un hook lo ha editado). No se ha guardado nada: descarta los cambios, \
+     recarga y vuelve a aplicarlos.";
+
+// ---------------------------------------------------------------------------
 // Save (with timestamped backup)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 pub struct SettingsSavePayload {
     pub content: serde_json::Value,
+    /// `content_hash` del snapshot sobre el que se editó `content`.
+    pub expected_hash: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -201,17 +259,30 @@ pub struct SettingsSaveResult {
 }
 
 pub fn settings_save_inner(payload: SettingsSavePayload) -> Result<SettingsSaveResult, String> {
+    let path = claude_settings_path().ok_or_else(|| "no HOME".to_string())?;
+    let backup_dir = backups_dir().ok_or_else(|| "no HOME".to_string())?;
+    save_at(&path, &backup_dir, payload)
+}
+
+/// Guardado de [`settings_save_inner`] sobre rutas explícitas (testeable).
+fn save_at(
+    path: &Path,
+    backup_dir: &Path,
+    payload: SettingsSavePayload,
+) -> Result<SettingsSaveResult, String> {
     // Refuse anything that isn't a JSON object at top level. settings.json
     // is an object per Claude Code's own schema; this catches accidental
     // serialization of a wrapping array or a scalar.
     if !payload.content.is_object() {
         return Err("settings.json root must be a JSON object".to_string());
     }
+    // Antes de tocar nada (ni la copia): si el fichero cambió, no se escribe.
+    if disk_hash(path)? != payload.expected_hash {
+        return Err(STALE_SETTINGS_ERROR.to_string());
+    }
 
-    let path = claude_settings_path().ok_or_else(|| "no HOME".to_string())?;
-    let backup_dir = backups_dir().ok_or_else(|| "no HOME".to_string())?;
     if !backup_dir.exists() {
-        fs::create_dir_all(&backup_dir).map_err(|e| format!("mkdir backups: {}", e))?;
+        fs::create_dir_all(backup_dir).map_err(|e| format!("mkdir backups: {}", e))?;
     }
 
     // Backup current file (if any) before overwriting.
@@ -219,7 +290,7 @@ pub fn settings_save_inner(payload: SettingsSavePayload) -> Result<SettingsSaveR
     if path.exists() {
         let stamp = iso_now_compact();
         let bk = backup_dir.join(format!("settings-{}.json", stamp));
-        fs::copy(&path, &bk).map_err(|e| format!("backup copy: {}", e))?;
+        fs::copy(path, &bk).map_err(|e| format!("backup copy: {}", e))?;
         backup_path = Some(bk);
     }
 
@@ -230,9 +301,9 @@ pub fn settings_save_inner(payload: SettingsSavePayload) -> Result<SettingsSaveR
     // Atomic-ish write via temp + rename.
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename: {}", e))?;
 
-    let new_size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let new_size_bytes = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     Ok(SettingsSaveResult {
         success: true,
         backup_path: backup_path.map(|p| p.to_string_lossy().to_string()),
@@ -391,3 +462,84 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
 //
 //   No other wiring is needed: the frontend Settings.tsx already calls
 //   `invoke("purge_legacy_autostart")` on mount and after every toggle.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// settings.json y carpeta de copias en un directorio temporal.
+    fn fixture(initial: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, initial).expect("escribir settings.json");
+        let backups = dir.path().join("backups");
+        (dir, path, backups)
+    }
+
+    fn payload(content: serde_json::Value, expected_hash: &str) -> SettingsSavePayload {
+        SettingsSavePayload {
+            content,
+            expected_hash: expected_hash.to_string(),
+        }
+    }
+
+    #[test]
+    fn guardar_con_la_huella_de_la_lectura_escribe() {
+        let (_dir, path, backups) = fixture(r#"{"model":"a"}"#);
+        let snap = read_snapshot_at(&path, &backups).expect("lectura");
+
+        let res = save_at(
+            &path,
+            &backups,
+            payload(serde_json::json!({"model":"b"}), &snap.content_hash),
+        )
+        .expect("el guardado con la huella vigente tiene que pasar");
+
+        assert!(res.success);
+        assert!(res.backup_path.is_some(), "deja copia del fichero anterior");
+        let disco: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(disco, serde_json::json!({"model":"b"}));
+    }
+
+    // Caso negativo: el fichero cambió en disco tras la lectura (otra sesión
+    // añadió un permiso). El guardado se rechaza con el error en español y no
+    // escribe nada: ni el fichero ni la copia.
+    #[test]
+    fn guardar_con_una_huella_vieja_se_rechaza_y_no_escribe_nada() {
+        let (_dir, path, backups) = fixture(r#"{"model":"a"}"#);
+        let snap = read_snapshot_at(&path, &backups).expect("lectura");
+        let ajeno = r#"{"model":"a","permissions":{"allow":["Bash(git:*)"]}}"#;
+        fs::write(&path, ajeno).unwrap();
+
+        let err = save_at(
+            &path,
+            &backups,
+            payload(serde_json::json!({"model":"b"}), &snap.content_hash),
+        )
+        .expect_err("la foto vieja no puede pisar la edición ajena");
+
+        assert_eq!(err, STALE_SETTINGS_ERROR);
+        assert_eq!(fs::read_to_string(&path).unwrap(), ajeno);
+        assert!(!backups.exists(), "el rechazo no deja copia");
+        assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn la_huella_distingue_contenido_y_el_fichero_ausente() {
+        assert_eq!(content_hash(b"{}"), content_hash(b"{}"));
+        assert_ne!(content_hash(b"{}"), content_hash(b"{ }"));
+        let dir = tempfile::tempdir().unwrap();
+        let ausente = dir.path().join("settings.json");
+        assert_eq!(disk_hash(&ausente).unwrap(), MISSING_FILE_HASH);
+        // Guardar sobre un fichero ausente exige la huella de «ausente».
+        let backups = dir.path().join("backups");
+        assert!(save_at(&ausente, &backups, payload(serde_json::json!({}), "otra")).is_err());
+        assert!(save_at(
+            &ausente,
+            &backups,
+            payload(serde_json::json!({}), MISSING_FILE_HASH)
+        )
+        .is_ok());
+    }
+}

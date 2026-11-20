@@ -3,7 +3,7 @@
 //!
 //! Tres reglas, ninguna destructiva sobre lo vivo:
 //!   1. Decaimiento: ACTIVE sin recall ni modificacion en la ventana -> `stale`
-//!      via `set_status` (camino probado: FTS5 + Qdrant + evento de auditoria).
+//!      via `set_status` (camino probado: FTS5 + evento de auditoria).
 //!      Reversible con `set_status(id, Active)`, que emite `Restored`.
 //!   2. Poda del log: `memory_events` de items `deprecated`/`rejected` mas
 //!      viejos que la ventana. Lo activo y lo stale conservan su historia.
@@ -20,7 +20,7 @@
 use super::super::model::{Actor, Status};
 use super::super::MemoryError;
 use super::super::{model::now_millis, sqlite_store as store};
-use super::{sync_index, GcResult, MemoryService, ScrubSecretsResult};
+use super::{GcResult, MemoryService, ScrubSecretsResult};
 
 /// Ventana por defecto del mantenimiento, en dias.
 pub const DEFAULT_GC_DAYS: i64 = 90;
@@ -98,8 +98,8 @@ impl MemoryService {
         }
 
         // Regla 1. `set_status` abre su propia conexion por item: se acepta el
-        // coste por-item a cambio de no duplicar la sincronizacion con FTS5,
-        // Qdrant y el log de eventos. Un fallo suelto no aborta el lote.
+        // coste por-item a cambio de no duplicar la sincronizacion con FTS5
+        // y el log de eventos. Un fallo suelto no aborta el lote.
         let reason = format!("gc: sin recall ni cambios en >{days}d");
         let mut stale_marked = 0usize;
         let mut failed: Vec<(String, String)> = Vec::new();
@@ -166,12 +166,7 @@ impl MemoryService {
         actor: Actor,
     ) -> (Option<ScrubSecretsResult>, Option<String>) {
         match Self::scrub_secrets_on(conn, dry_run, actor) {
-            Ok((result, touched)) => {
-                for item in &touched {
-                    sync_index(item);
-                }
-                (Some(result), None)
-            }
+            Ok((result, _touched)) => (Some(result), None),
             Err(e) => (None, Some(e.to_string())),
         }
     }

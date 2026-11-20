@@ -28,7 +28,7 @@ use super::super::model::{Actor, EventType, MemoryEvent, MemoryItem};
 use super::super::redaction;
 use super::super::sqlite_store::{self as store, TableScrub};
 use super::super::MemoryError;
-use super::{raised_sensitivity, sync_index, MemoryService};
+use super::{raised_sensitivity, MemoryService};
 
 /// Motivo del evento que deja cada item reescrito. Sin copia del contenido.
 const SCRUB_REASON: &str = "scrub-secrets: credencial redactada con el detector actual";
@@ -130,10 +130,7 @@ impl MemoryService {
         if !dry_run {
             store::enable_secure_delete(&conn)?;
         }
-        let (mut result, touched) = Self::scrub_secrets_on(&conn, dry_run, actor)?;
-        for item in &touched {
-            sync_index(item);
-        }
+        let (mut result, _touched) = Self::scrub_secrets_on(&conn, dry_run, actor)?;
         if dry_run {
             return Ok(result);
         }
@@ -149,9 +146,9 @@ impl MemoryService {
         Ok(result)
     }
 
-    /// [`Self::scrub_secrets`] sobre una conexión dada, sin Qdrant ni
-    /// compactación. Devuelve también los items reescritos para que el
-    /// llamante sincronice el índice denso. `secure_delete` lo pone el llamante.
+    /// [`Self::scrub_secrets`] sobre una conexión dada, sin compactación.
+    /// Devuelve también los items reescritos (los tests comprueban cuáles).
+    /// `secure_delete` lo pone el llamante.
     pub(crate) fn scrub_secrets_on(
         conn: &Connection,
         dry_run: bool,

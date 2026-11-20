@@ -318,7 +318,10 @@ fn capture_chunk(s: &PtySession, slice: &[u8]) -> Option<Option<String>> {
 /// Whether a PTY exit warrants an error notification. Only genuine non-zero
 /// process exits (`code > 0`) qualify — a manual kill or `wait()` failure maps
 /// to `-1` and must NOT nag the user — and only when the user toggle is on.
-/// card-vis-notif-session-error.
+/// `DBG_TERMINATE_PROCESS` tampoco cuenta: es el código con el que Windows
+/// termina el proceso al cerrarse su consola (cerrar Sessions con la sesión
+/// abierta). card-vis-notif-session-error.
 pub(super) fn should_notify_session_error(exit_code: i32, enabled: bool) -> bool {
-    enabled && exit_code > 0
+    const DBG_TERMINATE_PROCESS: i32 = 0x4001_0004;
+    enabled && exit_code > 0 && exit_code != DBG_TERMINATE_PROCESS
 }

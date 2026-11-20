@@ -37,8 +37,10 @@ $LogDir     = Join-Path $env:USERPROFILE ".ultron\cockpit\scheduler-logs"
 # GithubTrending-Daily left the map (retention.py, ai_standup.py, research.py
 # and github_trending.py no longer exist). A config entry without mapping is
 # skipped with a warning.
+# 2026-11-14: ScanProjects-Login left too (scan_projects.py retired; the
+# Control Center scans in Rust, projects/discover.rs). Its name stays in
+# $LegacyCockpitTaskNames so -Uninstall and the clean slate still remove it.
 $ScriptMap = @{
-    "ScanProjects-Login"   = "scan_projects.py"
     "Doctor-Weekly"        = "doctor.py"
 }
 # v15.4: TUI-Login removed (tui.py deleted; Control Center is the new cockpit).

@@ -38,9 +38,7 @@ fn assemble_pack_has_no_cross_call_state() {
     let fused = vec![FusedHit {
         canonical_id: it.id.clone(),
         rrf_score: 0.9,
-        dense_rank: Some(0),
         sparse_rank: None,
-        dense_score: Some(0.5),
     }];
 
     // Three "recalls" in a row with the full per-call cap. The OLD per-session
@@ -92,16 +90,12 @@ fn assemble_pack_respects_per_call_token_cap() {
         FusedHit {
             canonical_id: big.clone(),
             rrf_score: 0.9,
-            dense_rank: Some(0),
             sparse_rank: None,
-            dense_score: None,
         },
         FusedHit {
             canonical_id: small.clone(),
             rrf_score: 0.8,
-            dense_rank: Some(1),
             sparse_rank: None,
-            dense_score: None,
         },
     ];
 
@@ -149,9 +143,7 @@ fn fat_entries_are_clamped_not_evicting_later_items() {
         fused.push(FusedHit {
             canonical_id: it.id.clone(),
             rrf_score: 0.9 - (i as f32) * 0.1,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.85),
         });
     }
 
@@ -226,9 +218,7 @@ fn near_dup_candidates_dont_burn_pack_slots() {
         .map(|(i, it)| FusedHit {
             canonical_id: it.id.clone(),
             rrf_score: 0.9 - (i as f32) * 0.1,
-            dense_rank: Some(i),
             sparse_rank: None,
-            dense_score: Some(0.85),
         })
         .collect();
 
@@ -255,16 +245,12 @@ fn near_dup_candidates_dont_burn_pack_slots() {
         FusedHit {
             canonical_id: a.id.clone(),
             rrf_score: 0.9,
-            dense_rank: Some(0),
             sparse_rank: None,
-            dense_score: Some(0.85),
         },
         FusedHit {
             canonical_id: d.id.clone(),
             rrf_score: 0.8,
-            dense_rank: Some(1),
             sparse_rank: None,
-            dense_score: Some(0.84),
         },
     ];
     let (inj2, _, _) = assemble_pack(&conn, &fused2, 2, None, false, PER_CALL_TOKEN_CAP);

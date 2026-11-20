@@ -58,7 +58,7 @@ if str(_COCKPIT_DIR) not in sys.path:
 
 # ---------------------------------------------------------------------------
 # Public API re-exports
-# Keep these stable: external callers (health.py, alerts.py, hooks, tests)
+# Keep these stable: external callers (alerts.py, hooks, tests)
 # import from ``doctor`` directly and must continue to work unchanged.
 # ---------------------------------------------------------------------------
 

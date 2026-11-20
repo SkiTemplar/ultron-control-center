@@ -48,8 +48,8 @@ fn required_type(args: &[String], missing: &str) -> Result<MemoryType, String> {
 
 /// Governed, selective hard-delete by item id.
 ///
-/// Event-sourced: removes the row from brain.db (SQLite SoT) + its Qdrant
-/// point (dense index), then appends a `MemoryEvent` (Updated, reason
+/// Event-sourced: removes the row from brain.db (SQLite SoT; the FTS5
+/// trigger drops its index entry), then appends a `MemoryEvent` (Updated, reason
 /// "forgotten") with a `before` snapshot — the only surviving audit record.
 /// Reuses the exact `MemoryService::forget` path wired to the Tauri
 /// `memory_forget` command (see commands/memory/inbox.rs).
@@ -104,7 +104,7 @@ fn forget_preview(resolved_id: &str) -> Result<Value, String> {
 
 /// F1.7 (Q8b): archivar a tabla aparte (memory_items_archive) los ACTIVE de
 /// --type creados hace más de --older-than-days (default 14). --dry-run solo
-/// cuenta. Fuera del retriever, FTS5, Qdrant y reconcile.
+/// cuenta. Fuera del retriever, FTS5 y reconcile.
 fn archive(args: &[String]) -> Result<Value, String> {
     let kind = required_type(args, "archive requires --type <T>")?;
     let days: u64 = match flag_value(args, "--older-than-days") {
@@ -122,7 +122,7 @@ fn archive(args: &[String]) -> Result<Value, String> {
 
 /// Bulk-deprecate every ACTIVE item of a type (purge bloat, e.g.
 /// codebase_fact). --dry-run only counts. Reuses set_status per id so
-/// FTS5 + Qdrant stay in sync; appends a Deprecated event per item.
+/// FTS5 stays in sync; appends a Deprecated event per item.
 ///   ultron-memory deprecate --type codebase_fact [--dry-run] [--project X] [--reason R]
 ///   ultron-memory deprecate --id <id|prefix> [--reason R]   (curacion de eras, 2026-07-02)
 fn deprecate(args: &[String], project: Option<&str>) -> Result<Value, String> {
@@ -166,7 +166,7 @@ fn deprecate_one(args: &[String], id_prefix: &str) -> Result<Value, String> {
 
 /// Sweep ACTIVE items not MODIFIED in --older-than-days (default 180) and
 /// transition them to Status::Stale (no longer recall-eligible). --dry-run
-/// only counts. Reuses set_status per id so FTS5 + Qdrant + the event log
+/// only counts. Reuses set_status per id so FTS5 + the event log
 /// stay in sync; pinned and user-validated items are protected. Reversible.
 ///   ultron-memory stale [--older-than-days N] [--dry-run] [--reason R]
 fn stale(args: &[String]) -> Result<Value, String> {
@@ -282,7 +282,7 @@ fn dedupe(args: &[String]) -> Result<Value, String> {
 /// (kanban: "ultron-memory doctor: 478 deprecation_deadlines vencidos";
 /// decisión 2026-09-14: archivar, no purgar). Si el item sigue
 /// `deprecated` en `memory_items` lo archiva por el mismo camino que
-/// `archive` (Qdrant + memory_items_archive + evento); si ya no existe
+/// `archive` (memory_items_archive + evento); si ya no existe
 /// en ningún lado la entrada pasa a `state='deleted'` sin tocar
 /// memoria. `--dry-run` solo cuenta. Se ejecuta también dentro de `gc`.
 ///   ultron-memory deprecations apply [--dry-run]

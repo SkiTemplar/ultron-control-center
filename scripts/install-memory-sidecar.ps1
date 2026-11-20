@@ -6,7 +6,7 @@
 #   2. Download prebuilt asset from the LATEST       -> verify SHA-256 sidecar
 #      GitHub Release (ultron-memory-windows-x64.exe)   manifest, then deploy
 #   3. cargo build --release --bin ultron-memory     -> copy from target/release
-#      --features qdrant  (requires Rust toolchain)
+#      (requires Rust toolchain)
 #
 # Exit codes: 0 = binary deployed or already present, 1 = all paths failed.
 # Without the sidecar there is no memory of any kind: the hooks stay fail-safe
@@ -139,7 +139,7 @@ Push-Location $crateDir
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 try {
-    & cargo build --release --bin ultron-memory --features qdrant
+    & cargo build --release --bin ultron-memory
     if ($LASTEXITCODE -ne 0) { throw ("cargo build exited " + $LASTEXITCODE) }
 } catch {
     $ErrorActionPreference = $prevEAP

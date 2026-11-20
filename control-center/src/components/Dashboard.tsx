@@ -67,7 +67,7 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Claude Code · memoria SQLite FTS5 (denso opcional) · Control Center v{APP_VERSION}
+            Claude Code · memoria SQLite FTS5 · Control Center v{APP_VERSION}
           </p>
         </div>
         {/* Same label and colour as the Sidebar footer (lib/status.ts). */}

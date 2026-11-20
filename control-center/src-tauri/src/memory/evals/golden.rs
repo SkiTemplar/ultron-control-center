@@ -84,31 +84,8 @@ impl GoldenMetricsReport {
 ///
 /// FAIL-SAFE end-to-end: a missing/invalid file, or any per-query `recall_pack`
 /// failure, degrades (empty ranking / `degraded = true`) instead of panicking.
-///
-/// `rerank`: los comandos de CALIDAD (`eval-full`, `eval --golden`) pasan
-/// `true`; el check `evals` del doctor pasa `false` — con el cross-encoder el
-/// doctor pasaba de ~10s a ~62s (medido 2026-07-04) y reventaba los timeouts
-/// de todos los checks del harness que lo consultan (cat1.2/1.3/5.2 en rojo
-/// falso). El doctor es fontanería, no medidor de calidad.
 #[must_use]
-pub fn run_golden_metrics(
-    project_override: Option<&str>,
-    k: usize,
-    rerank: bool,
-) -> GoldenMetricsReport {
-    // Pre-check infra (2026-08-10): con Qdrant caído el golden mediría el modo
-    // degradado sparse-only y el consumidor (doctor/eval) lo confundiría con
-    // una regresión real de calidad (audit 08-09: recall 0.823→0.151 "sin
-    // motivo" + doctor de 2min pagando timeouts por query). Infra caída se
-    // declara como degraded CON CAUSA, nunca como score.
-    // Con el denso apagado a proposito (`ULTRON_DENSE=0`) Qdrant no tiene que
-    // estar vivo: se mide el modo sparse, que es el que esta en produccion.
-    if crate::qdrant::dense_enabled() && !crate::qdrant::qdrant_healthy_cached() {
-        return GoldenMetricsReport::degraded(
-            k,
-            "infra_down: Qdrant no responde /healthz — golden omitido (no es regresión de calidad)",
-        );
-    }
+pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMetricsReport {
     let Some(path) = golden_set_path() else {
         return GoldenMetricsReport::degraded(k, "no HOME dir; cannot locate golden_set.json");
     };
@@ -153,21 +130,20 @@ pub fn run_golden_metrics(
         let project = project_override.or(pos.project_id.as_deref());
 
         // SAME recall path as the `eval`/`recall` subcommands. FAIL-SAFE: an error
-        // (Qdrant/E5 offline) degrades this query to an empty ranking — every
-        // metric then scores 0 for it, which is the correct "recovered nothing".
-        // Each positive is an independent recall; there is no per-session budget
-        // to reset (every recall gets the full per-call cap, never starved).
-        let retrieved: Vec<String> =
-            match recall_pack_diagnostic(&pos.query, k, project, false, rerank) {
-                Ok(pack) => {
-                    returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
-                    pack.entries.into_iter().map(|e| e.canonical_id).collect()
-                }
-                Err(e) => {
-                    eprintln!("[evals] golden recall failed for '{}': {e}", pos.query);
-                    Vec::new()
-                }
-            };
+        // (brain.db locked, FTS failure) degrades this query to an empty ranking
+        // — every metric then scores 0 for it, which is the correct "recovered
+        // nothing". Each positive is an independent recall; there is no
+        // per-session budget to reset (every recall gets the full per-call cap).
+        let retrieved: Vec<String> = match recall_pack_diagnostic(&pos.query, k, project, false) {
+            Ok(pack) => {
+                returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
+                pack.entries.into_iter().map(|e| e.canonical_id).collect()
+            }
+            Err(e) => {
+                eprintln!("[evals] golden recall failed for '{}': {e}", pos.query);
+                Vec::new()
+            }
+        };
 
         let m = EvalMetrics::for_query(&retrieved, &relevant, k);
         per_query.push(m);

@@ -11,7 +11,8 @@
 // We copy (never rename: hooks/scripts/docs all consume the dash name) each
 // dash-named binary to its snake_case twin right before bundling. Missing
 // sources are skipped silently: local builds with bundle targets ["app"] on
-// Windows never bundle, and a build without the qdrant feature has no sidecar.
+// Windows never bundle, and a build that skipped the ultron-memory target has
+// no sidecar.
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";

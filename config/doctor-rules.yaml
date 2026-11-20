@@ -20,14 +20,6 @@ retention:
   alerts_max_size_mb: 10
 
 staleness:
-  # context.md (L0 wake-up cache) older than this triggers a stale warning.
-  l0_max_hours: 4
-
-  # brain_index/index.db (ZTMSI) older than this triggers an info-level
-  # finding. The Stop hook auto-updates it; this is mostly useful for
-  # detecting stuck SessionStart hooks.
-  ztmsi_max_hours: 4
-
   # D17_DEADWOOD: deadwood scanner sidecar JSON
   # (~/.ultron/.tmp/deadwood.json) older than this triggers an INFO
   # finding suggesting a fresh scan. sync-all step 7 refreshes it.

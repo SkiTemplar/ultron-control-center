@@ -126,6 +126,8 @@ pub(super) const SENSITIVE_PATHS: &[&str] = &[
     "/.ultron/mods/",
     "/.ultron/scripts/",
     "/.ultron/bin/",
+    "/.ultron/claude.md",
+    "/.mcp.json",
     "/.ssh/",
     "/.gitconfig",
     "/.git/hooks/",
@@ -322,14 +324,19 @@ pub(super) fn touches_sensitive_path(text: &str) -> bool {
     SENSITIVE_PATHS.iter().any(|p| norm.contains(p))
 }
 
+/// Instrucciones que cargan los `claude -p`, `codex exec` y Antigravity de
+/// Pupus, que corren con cwd = carpeta de usuario. Las de un proyecto
+/// cualquiera no: preguntar por cada `CLAUDE.md` frenaría el trabajo normal.
+static HOME_INSTRUCTIONS: Lazy<Regex> =
+    Lazy::new(|| re(r"(?i)(?:^~|/users/[^/]+)/(?:claude|agents|gemini)\.md$"));
+
 /// Escribir aquí también pregunta. `projects.json` se puede leer sin preguntar,
 /// pero da hooks y permisos por proyecto, y el guardarraíl lo vigila.
 pub(super) fn sensitive_write(path: &str) -> bool {
+    let norm = path.replace('\\', "/").to_lowercase();
     touches_sensitive_path(path)
-        || path
-            .replace('\\', "/")
-            .to_lowercase()
-            .ends_with("/.ultron/cockpit/projects.json")
+        || norm.ends_with("/.ultron/cockpit/projects.json")
+        || HOME_INSTRUCTIONS.is_match(&norm)
 }
 
 /// Motivo para pedir confirmación ante un texto que se ejecuta (comando o

@@ -1,47 +1,28 @@
-// recall_unified/types_model.rs — public types + RRF fusion.
+// recall_unified/types_model.rs — public types + RRF scoring.
 
 use serde::Serialize;
 
 /// Standard RRF damping constant.
 pub(super) const RRF_K: f32 = 60.0;
-/// Top-K pulled from each source before fusion (hot path — hook UserPromptSubmit).
+/// Top-K FTS candidates per recall before widening (see `SPARSE_WIDEN_FACTOR`).
 pub(super) const FANOUT_K: usize = 30;
-/// Fanout del path de CALIDAD (rerank=true: recall CLI/browser, trace, evals).
-/// El diagnostico 2026-07-22 situo relevantes del golden fuera del top-30 de
-/// cada fuente; 60 los mete en la fusion sin tocar la latencia del hook (el
-/// hot path pasa rerank=false y conserva FANOUT_K).
-pub(super) const FANOUT_K_QUALITY: usize = 60;
+/// Ensanche del pool sparse: se piden `FANOUT_K * SPARSE_WIDEN_FACTOR`
+/// candidatos BM25 para que, bajo un filtro de proyecto, los items del
+/// proyecto lleguen a los gates de `assemble_pack` aunque el vault global y
+/// otros proyectos dominen el top-30.
+pub(super) const SPARSE_WIDEN_FACTOR: usize = 12;
 
-/// Aviso de denso vacío. Solo es una avería si el llamante pidió el denso y el
-/// interruptor global lo tiene encendido: con `ULTRON_DENSE=0` (decisión del
-/// 2026-09-28) o con el camino sparse pedido, un denso vacío es lo esperado y
-/// el aviso «E5/Qdrant unavailable» era falso en cada recall.
-pub(super) fn dense_empty_warning(
-    requested: bool,
-    global_on: bool,
-    dense_hits: usize,
-) -> Option<String> {
-    (requested && global_on && dense_hits == 0)
-        .then(|| "dense recall empty — E5/Qdrant unavailable; sparse-only".to_string())
-}
-
-/// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A fused hit with NO
-/// dense (semantic) backing whose sparse (BM25) rank is at or beyond this cutoff
-/// is lexical TAIL noise: it shares a stray term with the query but E5 did not
-/// rank it relevant at all. The sparse fanout is widened (×12 when dense is off)
-/// to push in-project items PAST the governance gates — this floor stops that
-/// same widening from injecting the BM25 tail (the "Mundial 2026 / menú de 5
-/// decisiones" class of irrelevant hits). dense-backed hits (any dense rank) and
-/// sparse-TOP hits (rank < cutoff) always pass. Calibrated against the golden
-/// eval: must not drop recall@8 (baseline 0.868) while cutting context_waste.
+/// Relevance floor (Pilar #1 — "trae lo correcto y POCO"). A hit whose sparse
+/// (BM25) rank is at or beyond this cutoff is lexical TAIL noise: it shares a
+/// stray term with the query. The sparse fanout is widened
+/// (`SPARSE_WIDEN_FACTOR`) to push in-project items PAST the governance gates;
+/// this floor stops that same widening from injecting the BM25 tail (the
+/// "Mundial 2026 / menú de 5 decisiones" class of irrelevant hits).
 ///
 /// 15 -> 3 (2026-09-07, decidido por el usuario tras medir): con el cutoff en
-/// 15 el 52 % de lo inyectado en 40 prompts reales (90 de 174 entradas) eran
-/// hits solo-BM25 que E5 no rankeó — 67 de ellos "decisiones" de cola léxica
-/// ("El plan Tienda…" para un prompt sobre el daemon). E5 da cosenos planos
-/// (0,80-0,89 en todo el pack), así que el respaldo denso es binario, no un
-/// umbral: sin él solo pasan los 3 primeros de BM25 (coincidencia léxica
-/// fuerte). Un pack más corto es el objetivo, no un efecto secundario.
+/// 15 el 52 % de lo inyectado en 40 prompts reales eran hits de cola léxica.
+/// Solo pasan los 3 primeros de BM25 (coincidencia léxica fuerte). Un pack más
+/// corto es el objetivo, no un efecto secundario.
 pub(super) const SPARSE_TAIL_CUTOFF: usize = 3;
 
 /// Down-rank de items AMBIENTE (project_id=NULL) bajo filtro de proyecto
@@ -80,11 +61,9 @@ pub struct RecallEntry {
     /// separar las lecciones cross-project del resto (ULTRON 4 F1.3).
     #[serde(default)]
     pub kind: String,
-    pub score: f32, // RRF fused score
-    pub dense_rank: Option<usize>,
+    pub score: f32, // RRF score after the quality factors
     pub sparse_rank: Option<usize>,
-    pub dense_score: Option<f32>, // raw E5 cosine similarity (B1: tie-break / quality signal)
-    pub reason: String,           // "why this memory" — e.g. "dense#2 + sparse#5"
+    pub reason: String, // "why this memory" — e.g. "sparse#2"
     pub token_estimate: i64,
 }
 
@@ -92,22 +71,19 @@ pub struct RecallEntry {
 pub struct RecallPack {
     pub entries: Vec<RecallEntry>,
     pub total_tokens: i64,
-    pub dense_hits: usize,
     pub sparse_hits: usize,
-    /// (floor) true si el gate de abstención vació el pack: la query no tenía
-    /// ninguna entrada con señal de confianza. Distingue "no hay nada que
-    /// inyectar" de "no encontré nada" para los consumidores del CLI.
+    /// true si el trust gate vació el pack: la query traía términos que el
+    /// corpus no conoce. Distingue "no hay nada que inyectar" de "no encontré
+    /// nada" para los consumidores del CLI.
     pub abstained: bool,
 }
 
-/// One fused candidate with its per-source ranks (Retrieval Inspector).
+/// One scored candidate with its BM25 rank (Retrieval Inspector).
 #[derive(Debug, Clone, Serialize)]
 pub struct FusedHit {
     pub canonical_id: String,
     pub rrf_score: f32,
-    pub dense_rank: Option<usize>,
     pub sparse_rank: Option<usize>,
-    pub dense_score: Option<f32>, // raw E5 cosine similarity (B1)
 }
 
 /// A candidate that was retrieved but NOT injected, with the reason why.
@@ -124,9 +100,8 @@ pub struct RecallTrace {
     pub project_filter: Option<String>,
     /// Per-call token cap applied by `assemble_pack` (`PER_CALL_TOKEN_CAP`).
     pub token_budget: i64,
-    pub dense_ids: Vec<String>,  // E5/Qdrant order
     pub sparse_ids: Vec<String>, // FTS5 order
-    pub fused: Vec<FusedHit>,    // after RRF
+    pub fused: Vec<FusedHit>,    // after RRF scoring + quality factors
     pub injected: Vec<RecallEntry>,
     pub discarded: Vec<DiscardedHit>,
     pub total_tokens: i64,
@@ -135,24 +110,8 @@ pub struct RecallTrace {
 }
 
 /// Reciprocal Rank Fusion. Each list is canonical_ids ordered best-first.
-/// `score(d) = Σ_sources 1 / (k + rank + 1)`. Returns `(id, score)` desc.
-/// (cat1 ranking, 2026-07-02) RRF PONDERADO: cada lista aporta
-/// `peso / (k + rank + 1)`. Con pesos 1.0 es idéntico a `rrf_fuse`. Permite
-/// pesar dense (E5, la señal de calidad) sobre sparse (BM25, ruidoso con
-/// stopwords) — knob `ULTRON_DENSE_W` en el engine, default 0.8.
-pub fn rrf_fuse_weighted(lists: &[(Vec<String>, f32)], k: f32) -> Vec<(String, f32)> {
-    use std::collections::HashMap;
-    let mut scores: HashMap<String, f32> = HashMap::new();
-    for (list, weight) in lists {
-        for (rank, id) in list.iter().enumerate() {
-            *scores.entry(id.clone()).or_insert(0.0) += weight / (k + rank as f32 + 1.0);
-        }
-    }
-    let mut out: Vec<(String, f32)> = scores.into_iter().collect();
-    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    out
-}
-
+/// `score(d) = Σ_sources 1 / (k + rank + 1)`. Returns `(id, score)` desc, with
+/// a stable tie-break by id. El recall la usa con una sola lista (la de BM25).
 pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
     use std::collections::HashMap;
     let mut scores: HashMap<String, f32> = HashMap::new();

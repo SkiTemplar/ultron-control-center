@@ -27,6 +27,11 @@
  *   H) el binario se cuelga -> timeout: el log registra ETIMEDOUT y la señal (el
  *      caso real de H26, que dejaba status:null sin causa).
  *   I) éxito tras fallos -> estado sellado sin fail_count (contador a cero).
+ *   J) cada linea lleva trigger=session-end y la llamada al binario va
+ *      precedida de una linea phase=start.
+ *   K) --scheduled (tarea ULTRON-MemoryGC) -> trigger=scheduled, misma cadencia.
+ *   L) el hook muere a mitad del gc (Sessions cierra el Job Object) -> queda
+ *      el start sin cierre y el estado no se sella.
  *   E) MEMORY_GC_DISABLED=1 -> ni ejecucion, ni log, ni estado.
  *
  * Uso: node scripts/memory-gc.selftest.mjs   (exit 0 = verde)
@@ -70,7 +75,7 @@ fs.appendFileSync(process.env.MEMORY_GC_STUB_ARGS, process.argv.slice(1).join(' 
 if (process.env.MEMORY_GC_STUB_HANG === '1') {
   // Bloqueo síncrono: si el precargado volviera, node intentaría cargar el
   // script "gc" y saldría al instante con error.
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.MEMORY_GC_STUB_HANG_MS) || 60000);
   process.exit(0);
 }
 if (process.env.MEMORY_GC_STUB_FAIL === '1') {
@@ -83,9 +88,10 @@ process.exit(0);
   "utf8",
 );
 
-function correr({ falla = false, cuelga = false, extraEnv = {} } = {}) {
-  return spawnSync(process.execPath, [HOOK], {
+function correr({ falla = false, cuelga = false, extraEnv = {}, args = [], matarTrasMs = 0 } = {}) {
+  return spawnSync(process.execPath, [HOOK, ...args], {
     encoding: "utf8",
+    ...(matarTrasMs > 0 ? { timeout: matarTrasMs } : {}),
     env: {
       ...process.env,
       NODE_OPTIONS: `--require "${STUB.split("\\").join("/")}"`,
@@ -103,9 +109,13 @@ function correr({ falla = false, cuelga = false, extraEnv = {} } = {}) {
   });
 }
 
-function leerLog() {
+function leerTodo() {
   if (!existsSync(LOG)) return [];
   return readFileSync(LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+}
+/** Líneas de resultado: sin el rastro phase=start previo a la llamada. */
+function leerLog() {
+  return leerTodo().filter((l) => l.phase !== "start");
 }
 function leerEstado() {
   return existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : null;
@@ -239,6 +249,46 @@ console.log("I) exito tras fallos: el contador vuelve a cero");
   A(leerLog()[0] && leerLog()[0].ok === true, "log con ok:true", JSON.stringify(leerLog()));
   A(est.last_run_ms > viejo && est.fail_count === undefined && est.last_error === undefined,
     "estado sellado sin campos de fallo", JSON.stringify(est));
+}
+
+console.log("J) rastro previo a la llamada y origen del disparo");
+{
+  rmSync(STATE, { force: true });
+  limpiarTraza();
+  correr();
+  const todo = leerTodo();
+  A(todo.length === 2 && todo[0].phase === "start" && todo[1].ok === true,
+    "start antes del resultado", JSON.stringify(todo));
+  A(todo.every((l) => l.trigger === "session-end"), "trigger=session-end sin flag", JSON.stringify(todo));
+  limpiarTraza();
+  correr();
+  const salto = leerTodo();
+  A(salto.length === 1 && salto[0].skipped === "cadencia", "sin start cuando no toca", JSON.stringify(salto));
+}
+
+console.log("K) --scheduled: misma cadencia, trigger=scheduled");
+{
+  writeFileSync(STATE, JSON.stringify({ last_run_ms: Date.now() - 8 * DIA_MS }), "utf8");
+  limpiarTraza();
+  const r = correr({ args: ["--scheduled"] });
+  const todo = leerTodo();
+  A(r.status === 0 && llamadas().length === 1, "ejecuta el gc vencido", JSON.stringify(llamadas()));
+  A(todo.length === 2 && todo.every((l) => l.trigger === "scheduled"), "trigger=scheduled", JSON.stringify(todo));
+  limpiarTraza();
+  correr({ args: ["--scheduled"] });
+  A(llamadas().length === 0 && leerLog()[0] && leerLog()[0].skipped === "cadencia",
+    "respeta la cadencia sellada por la ejecucion anterior", JSON.stringify(leerTodo()));
+}
+
+console.log("L) el hook muere a mitad del gc: queda el start, el estado no se sella");
+{
+  const viejo = Date.now() - 8 * DIA_MS;
+  writeFileSync(STATE, JSON.stringify({ last_run_ms: viejo }), "utf8");
+  limpiarTraza();
+  correr({ cuelga: true, matarTrasMs: 2500, extraEnv: { MEMORY_GC_TIMEOUT_MS: "60000", MEMORY_GC_STUB_HANG_MS: "6000" } });
+  const todo = leerTodo();
+  A(todo.length === 1 && todo[0].phase === "start", "solo el start (proceso matado)", JSON.stringify(todo));
+  A((leerEstado() || {}).last_run_ms === viejo, "estado sin sellar: se reintenta", JSON.stringify(leerEstado()));
 }
 
 console.log("E) opt-out MEMORY_GC_DISABLED=1: silencio total");

@@ -115,7 +115,7 @@ function manifestGaps(tracked, read) {
   const tests = JSON.parse(text).tests || {};
   const missing = Object.keys(tests).filter((f) => !tracked.has(f))
     .map((f) => `${MANIFEST} cita ${f}, que no esta en el indice`);
-  const scanned = [...tracked].filter((f) => /^(hooks|scripts|cockpit\/skill-lazy)\//.test(f) && isSelftest(f));
+  const scanned = [...tracked].filter((f) => /^(hooks|scripts)\//.test(f) && isSelftest(f));
   const unclassified = scanned.filter((f) => !(f in tests))
     .map((f) => `${f} esta en el indice sin clasificar en ${MANIFEST}`);
   return [...missing, ...unclassified];

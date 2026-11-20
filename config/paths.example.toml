@@ -19,16 +19,6 @@ claude_root  = "%USERPROFILE%\\.claude"
 [memory]
 # Canonical SQLite source of truth (runtime, per-machine — never versioned).
 brain_db     = "%USERPROFILE%\\.ultron\\brain.db"
-# ONNX embedding cache (E5-large). Override with env ULTRON_FASTEMBED_CACHE to
-# pin ONE canonical copy machine-wide (avoids per-CWD duplicates of the ~2.2 GB
-# model). Default = ~/.ultron/.fastembed_cache.
-fastembed_cache = "%USERPROFILE%\\.ultron\\.fastembed_cache"
-
-[qdrant]
-# Native Qdrant binary + storage. Override the HTTP endpoint with env QDRANT_URL.
-binary       = "%USERPROFILE%\\.ultron\\bin\\qdrant.exe"
-storage      = "%USERPROFILE%\\.ultron\\qdrant_storage"
-url          = "http://localhost:6333"
 
 [sidecars]
 # Compiled sidecars. Override sidecar location with env ULTRON_MEMORY_BIN.

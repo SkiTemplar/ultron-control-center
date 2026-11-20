@@ -41,9 +41,9 @@ export function Contexto({ sessionId }: { sessionId: string | null }) {
         ))}
       </div>
       {pct >= 70 ? (
-        <div className="callout warn"><b>Contexto alto:</b> por encima del 70 % conviene <code>/compact</code> o un relevo con <code>/relevo</code>.</div>
+        <div className="insp-callout warn"><b>Contexto alto:</b> por encima del 70 % conviene <code>/compact</code> o un relevo con <code>/relevo</code>.</div>
       ) : (
-        <div className="callout"><b>Margen:</b> quedan {formatTokens(status.contextWindow - status.contextTokens)} tokens antes de llenar la ventana.</div>
+        <div className="insp-callout"><b>Margen:</b> quedan {formatTokens(status.contextWindow - status.contextTokens)} tokens antes de llenar la ventana.</div>
       )}
       {typeof status.costUsd === "number" && (
         <div className="kv"><span>Coste equivalente de la sesión</span><span>{status.costUsd.toFixed(2)} USD</span></div>

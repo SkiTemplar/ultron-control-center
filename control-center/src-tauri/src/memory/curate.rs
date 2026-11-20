@@ -6,9 +6,9 @@
 // puede matchear. reassign-project mueve proyectos ENTEROS y el backfill decide
 // solo — faltaba el bisturí: un item concreto, cambio auditado, dry-run por
 // defecto. Mismo path de escritura que el resto (get_item -> insert_item +
-// MemoryEvent + Qdrant), respetando el escritor único.
+// MemoryEvent), respetando el escritor único.
 
-use super::model::{Actor, EventType, MemoryEvent, Status};
+use super::model::{Actor, EventType, MemoryEvent};
 use super::sqlite_store as store;
 
 /// Resuelve un prefijo de id a un id único entre los candidatos dados.
@@ -26,9 +26,8 @@ pub fn resolve_prefix<'a>(prefix: &str, ids: &'a [String]) -> Result<&'a str, St
     }
 }
 
-/// Cura un item: cambia `project_id` y/o `title`. Dry-run salvo `apply`.
-/// Si el título cambia, reindexa el punto denso (el embedding incluye el
-/// título: dejarlo viejo sería mentirle al recall).
+/// Cura un item: cambia `project_id` y/o `title`. Dry-run salvo `apply`. El
+/// FTS5 sigue al título nuevo por los triggers de `memory_items`.
 pub fn curate_item(
     id_prefix: &str,
     project: Option<&str>,
@@ -76,31 +75,16 @@ pub fn curate_item(
         item.title = Some(t.to_string());
     }
 
-    let mut reindexed = false;
     if apply {
         let ev = MemoryEvent::new(EventType::Edited, Some(id.clone()), Actor::User)
             .with_reason(format!("curate: {}", changes.join(" · ")));
         store::insert_item_with_event(&conn, &item, &ev).map_err(|e| e.to_string())?;
-        if item.status == Status::Active {
-            if title.is_some() {
-                // Título nuevo = texto nuevo = embedding nuevo.
-                super::qdrant_index::index_item(&item)?;
-                reindexed = true;
-            } else if project.is_some() {
-                let _ = crate::qdrant::set_payload(
-                    "ultron_memory",
-                    &id,
-                    serde_json::json!({ "project_id": item.project_id }),
-                );
-            }
-        }
     }
 
     Ok(serde_json::json!({
         "apply": apply,
         "id": id,
         "changes": changes,
-        "reindexed_dense": reindexed,
     }))
 }
 

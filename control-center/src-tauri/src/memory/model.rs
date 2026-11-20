@@ -2,8 +2,8 @@
 //
 // The single, governed, auditable representation of a memory. This replaces the
 // anemic `MemoryHit` (id/text/score/source) as the source-of-truth type. It is
-// persisted in `~/.ultron/brain.db` (see `sqlite_store.rs`) and indexed in
-// Qdrant (Fase B). Every mutation emits a `MemoryEvent` (append-only audit).
+// persisted in `~/.ultron/brain.db` (see `sqlite_store.rs`) and indexed by
+// its FTS5 table (`memory_items_fts`). Every mutation emits a `MemoryEvent` (append-only audit).
 //
 // Controlled vocabularies are modeled as small string enums via the `str_enum!`
 // macro: they serialize to/from the exact snake_case strings stored in SQLite,
@@ -198,7 +198,7 @@ str_enum! {
 // MemoryItem — the canonical, governed memory record
 // ---------------------------------------------------------------------------
 
-/// A single governed memory. Persisted in `memory_items`, indexed in Qdrant.
+/// A single governed memory. Persisted in `memory_items`, indexed by FTS5.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryItem {
     pub id: String,
@@ -249,6 +249,9 @@ pub struct MemoryItem {
     #[serde(default)]
     pub valid_to: Option<i64>,
 
+    /// Columna heredada del índice denso retirado el 2026-11-14: nada la
+    /// escribe y los items nuevos la dejan en `None`. Se conserva para no
+    /// migrar el esquema de `brain.db` ni romper filas antiguas.
     pub qdrant_point_id: Option<String>,
     pub token_estimate: i64,
     pub access_count: i64,
@@ -363,22 +366,8 @@ impl MemoryItem {
         }
     }
 
-    /// The text used for embedding/FTS: title + summary + content, de-duplicated.
-    ///
-    /// **Contextual Retrieval (CR)** — opt-in via `ULTRON_CR=1`:
-    /// when active, the passage is prefixed with a one-line context header so
-    /// that embeddings from different projects/types are separated in the vector
-    /// space, reducing cross-project recall collisions:
-    ///
-    /// ```text
-    /// Proyecto: ultron. Tipo: decision.
-    /// {title}\n{summary}\n{content}
-    /// ```
-    ///
-    /// With the flag **off** (default), the output is byte-for-byte identical
-    /// to the previous behaviour: `"{title}\n{summary}\n{content}"`.
-    /// Only the passage changes — the query embedding (`embed_e5(query, true)`)
-    /// is never modified by this flag.
+    /// The text used for FTS, hashing and token estimates: title + summary +
+    /// content joined by newlines.
     #[must_use]
     pub fn searchable_text(&self) -> String {
         let mut parts: Vec<&str> = Vec::new();
@@ -391,14 +380,7 @@ impl MemoryItem {
         if let Some(c) = &self.content {
             parts.push(c);
         }
-        let body = parts.join("\n");
-        if crate::qdrant::cr_enabled() {
-            let project = self.project_id.as_deref().unwrap_or("global");
-            let tipo = self.kind.as_str();
-            format!("Proyecto: {project}. Tipo: {tipo}.\n{body}")
-        } else {
-            body
-        }
+        parts.join("\n")
     }
 }
 
@@ -659,43 +641,11 @@ mod tests {
         assert_eq!(estimate_tokens(""), 0);
     }
 
-    // -----------------------------------------------------------------------
-    // Contextual Retrieval (CR) — searchable_text flag behaviour
-    //
-    // These tests mutate the process env var ULTRON_CR. They must NOT run in
-    // parallel with each other — use CR_ENV_LOCK to serialize access so that
-    // a set_var in one test isn't visible to another mid-flight.
-    // -----------------------------------------------------------------------
-
-    /// Serialises tests that touch ULTRON_CR so they don't race each other.
-    /// OnceLock + Mutex — no extra deps, mirrors the `once_cell` pattern already
-    /// used in qdrant.rs.
-    fn cr_env_lock() -> &'static std::sync::Mutex<()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
-    }
-
-    /// Run `f` with ULTRON_CR set to `val` (None = remove), then restore the
-    /// previous value. Holds `cr_env_lock` for the entire duration.
-    fn with_cr_env<F: FnOnce() -> R, R>(val: Option<&str>, f: F) -> R {
-        let _guard = cr_env_lock().lock().unwrap_or_else(|e| e.into_inner());
-        let prev = std::env::var("ULTRON_CR").ok();
-        match val {
-            Some(v) => std::env::set_var("ULTRON_CR", v),
-            None => std::env::remove_var("ULTRON_CR"),
-        }
-        let result = f();
-        match prev {
-            Some(v) => std::env::set_var("ULTRON_CR", v),
-            None => std::env::remove_var("ULTRON_CR"),
-        }
-        result
-    }
-
-    /// With ULTRON_CR absent (default OFF), searchable_text must be byte-for-byte
-    /// identical to the pre-CR baseline: title + "\n" + summary + "\n" + content.
+    /// searchable_text = title + "\n" + summary + "\n" + content, sin prefijo
+    /// de contexto (el `ULTRON_CR` de Contextual Retrieval solo afectaba a los
+    /// embeddings y se retiró con la ruta densa el 2026-11-14).
     #[test]
-    fn searchable_text_unchanged_when_cr_off() {
+    fn searchable_text_is_title_summary_content() {
         let mut item = MemoryItem::new(
             MemoryType::Decision,
             Scope::Project,
@@ -703,62 +653,17 @@ mod tests {
             Status::Active,
         );
         item.project_id = Some("ultron".to_string());
-        item.title = Some("usar E5-large".to_string());
+        item.title = Some("usar FTS5".to_string());
         item.summary = Some("resumen".to_string());
         item.content = Some("detalle".to_string());
-
-        let text = with_cr_env(None, || item.searchable_text());
-
-        assert_eq!(
-            text, "usar E5-large\nresumen\ndetalle",
-            "with ULTRON_CR unset, searchable_text must equal title+summary+content unchanged"
-        );
-    }
-
-    /// With ULTRON_CR=1, searchable_text must be prefixed with the context
-    /// header "Proyecto: {project_id}. Tipo: {kind}." followed by the body.
-    #[test]
-    fn searchable_text_prefixes_context_when_cr_on() {
-        let mut item = MemoryItem::new(
-            MemoryType::Decision,
-            Scope::Project,
-            Source::ToolObserved,
-            Status::Active,
-        );
-        item.project_id = Some("ultron".to_string());
-        item.title = Some("usar E5-large".to_string());
-        item.summary = Some("resumen".to_string());
-        item.content = Some("detalle".to_string());
-
-        let text = with_cr_env(Some("1"), || item.searchable_text());
-
-        assert_eq!(
-            text, "Proyecto: ultron. Tipo: decision.\nusar E5-large\nresumen\ndetalle",
-            "with ULTRON_CR=1, searchable_text must carry the context prefix"
-        );
-        assert!(
-            text.starts_with("Proyecto: ultron. Tipo: decision."),
-            "prefix not found; got: {text:?}"
-        );
-    }
-
-    /// When project_id is None, the prefix uses "global" as fallback.
-    #[test]
-    fn searchable_text_cr_uses_global_when_no_project() {
-        let mut item = MemoryItem::new(
+        assert_eq!(item.searchable_text(), "usar FTS5\nresumen\ndetalle");
+        // Caso negativo: sin campos no hay texto (ni prefijo de contexto).
+        let vacio = MemoryItem::new(
             MemoryType::Fact,
             Scope::Global,
             Source::UserExplicit,
             Status::Active,
         );
-        // project_id deliberately left as None (the default from new()).
-        item.title = Some("hecho global".to_string());
-
-        let text = with_cr_env(Some("1"), || item.searchable_text());
-
-        assert!(
-            text.starts_with("Proyecto: global. Tipo: fact."),
-            "None project_id must yield 'global'; got: {text:?}"
-        );
+        assert_eq!(vacio.searchable_text(), "");
     }
 }

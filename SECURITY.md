@@ -49,7 +49,7 @@ The following are considered security issues for this project.
 | **Hook injection** | Untrusted file under `~/.claude/` or `~/.ultron/` that escalates into arbitrary command execution outside the documented hook contract. |
 | **Secrets leakage** | `~/.claude/settings.json`, `~/.ultron/.env` or per-skill config files leaking into log output, telemetry, alerts or the news generator. |
 | **Command injection** | Any cockpit Python script that shells out to PowerShell, `git`, `claude`, `codex` or `gemini`. |
-| **Path traversal** | `brain_index.py`, `embed_skills.py`, `skill_sync_security.py` or any installer step that touches user files. |
+| **Path traversal** | `skill_sync_security.py` or any installer step that touches user files. |
 | **Insecure defaults** | Bundled `settings.json` template or the install script. |
 | **Tauri IPC misuse** | React frontend invoking commands not declared in `src-tauri/`'s allow-list. |
 

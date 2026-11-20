@@ -12,9 +12,8 @@
  * con etiquetas las frases con keywords críticos (recuerda, objetivo,
  * importante, siempre, nunca, no quiero, no me gusta).
  *
- * El inbox se procesa después via benchmarks/skill-routing-ab/extract.mjs
- * (consumidor real hoy), que lo usa como fuente de prompts reales para el
- * golden set de routing.
+ * El inbox lo lee `ultron-memory` (maintenance_cli.rs); el banco A/B de
+ * routing que lo usaba como corpus se retiró el 2026-11-14.
  *
  * Path: ~/.claude/memory/inbox/<YYYY-MM-DD>.md
  *

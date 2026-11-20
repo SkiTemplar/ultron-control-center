@@ -96,6 +96,7 @@ interface AgentNode {
   turns: number
   tokens: number
   maxTurns: number | null          // frontmatter de ~/.claude/agents/<tipo>.md (caché 60 s); null si no lo declara o el tipo no es un nombre simple (plugin:x)
+  model: string | null             // message.model del último mensaje real de su transcript; null hasta el primero
 }
 ```
 
@@ -126,6 +127,7 @@ interface AgentNode {
 | `sesiones_git` | — | **Retirado**: no está registrado en `handlers.rs`. El frontend llama directamente a `git_repo_snapshot`, `git_diff_file` y `git_commit`. |
 | `sesiones_usage` | `(force?: bool) -> PlanUsage` | Muestra local de `logs/usage-history.jsonl` si tiene menos de 5 min y ninguna ventana se ha reiniciado; si no, endpoint OAuth de `plan_limits.rs` con caché y espera exponencial tras un fallo (60 s ×2, tope 15 min). `force` (Actualizar) salta la muestra local, la caché y la espera; dos forzados en 5 s comparten la llamada. |
 | `sesiones_usage_pace` | `(force?: bool) -> UsoPace` | Ritmo del mod `ultron-uso` más `stale`, `source`, `fetchedAtMs` y `lastError` del uso. `force` como en `sesiones_usage`. En TS: `api.usage({force})` y `api.usagePace({force})`. |
+| `sesiones_delegations` | `(id: SessionId) -> DelegationRun[]` | Delegaciones de `scripts/delegate.mjs` lanzadas por la sesión: lee `<ULTRON_DELEGATE_DIR o ~/.ultron/.tmp/delegations>/<run>/meta.json` y `result.json` y se queda con los runs cuyo `session` es el id (el script lo toma de `ULTRON_SESION_ID`; un run lanzado fuera de Sessions no sale). `status`: `done`/`error` según `result.json`; sin él, `running`, o `stale` si `meta.json` lleva sin escribirse más que `timeoutS` + 10 min. `engine`, `model` y `attempt` son los del intento en curso (`current`) o, terminado, los del que pasó el check. Últimos 8 runs. El árbol de Agentes sondea cada 5 s mientras está abierto. En TS: `api.delegations(sessionId)`. |
 | `sesiones_engines_usage` | `(force?: bool) -> EnginesUsage` | Uso de las suscripciones de Codex (último `rate_limits` de `~/.codex/sessions`, con caché de 60 s en `~/.ultron/.tmp/codex-usage.json` invalidada por ruta, mtime y tamaño del rollout más nuevo) y agy (`agy -p /usage`, con caché de 5 min; sin cuota, actividad de los transcripts). Lo calcula `scripts/engine-usage.mjs --json`, el mismo lector que la statusline y `usage-outlook.mjs`. `force` salta las dos cachés. La pestaña Uso sondea cada 2 min, por debajo de la caché de agy, para que agy corra como mucho una vez cada 5 min. En TS: `api.enginesUsage({force})`. |
 | `sesiones_codex_start` | — | **Retirado**: no está registrado en `handlers.rs`. Sustituido por `sesiones_engine_run` (CONTRATO-v2). |
 | `sesiones_codex_list` | — | **Retirado**: no está registrado en `handlers.rs`. Sustituido por `sesiones_engine_list`. |
@@ -256,6 +258,8 @@ Comportamiento del mod (`~/.ultron/mods/ultron-puente/`):
 - 2026-10-19 · backend · Nuevo `sesiones_engines_usage` (ver la tabla) para el bloque secundario de Codex y agy en la pestaña Uso.
 - 2026-10-14 · backend · `Usage.model?: string`, solo en `subagentUsage` de `sesiones://turn`: el modelo del subagente, que llega en el `turnEnd` del puente con `agentId`. Sin él, el uso se valora con el modelo de la sesión.
 - 2026-10-14 · backend · `AgentNode.maxTurns` (ver el tipo): sale del frontmatter en el disco y en el `agentSpawn` del puente.
+- 2026-11-19 · backend · Nuevo `sesiones_delegations` (ver la tabla): los runs de `delegate.mjs` salen en el árbol de Agentes con motor, modelo, intento y estado. No dan tokens, turnos ni transcript.
+- 2026-11-19 · backend · `AgentNode.model` (ver el tipo): sale del transcript del subagente, no del frontmatter, así que es el modelo que respondió de verdad. El árbol de Agentes lo pinta en cada nodo, también en el relevo y en las delegaciones por Bash (ahí, solo si la orden lleva `--model` o `-m`).
 - 2026-10-14 · backend · Sesiones abiertas persistentes y restauradas al arrancar ULTRON (`~/.ultron/cockpit/sesiones/abiertas.json`), con su cola y sus notas: CONTRATO-v3 §8.
 - 2026-10-14 · backend · Puente: token rotado en cada lanzamiento (401 para el proceso anterior), `claudeSessionId` con forma de UUID (400), `sesionId` obligatorio en `/v1/result` (400), 429 por encima de 32 asks pendientes por sesión, 409 a un lote de protocolo 2 sin `generation` y a un `hello` de otra instancia sin `claudeSessionId` con dueño en el PTY: CONTRATO-v3 §5.
 - 2026-10-14 · backend · `StallReason` añade `startupTimeout` (subcondición de `starting`); `waiting.options` solo en `menu`, y su cambio reemite `sesiones://sessions`: CONTRATO-v3 §1. `SessionInfo.terminalAttached` lo rellena el backend (#31) y el reinicio sin transcript relanza como sesión nueva (#32): CONTRATO-v3 §1.

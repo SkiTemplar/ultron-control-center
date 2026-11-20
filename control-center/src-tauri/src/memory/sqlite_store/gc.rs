@@ -5,7 +5,7 @@
 //! a otra base, sino aplicar dos reglas con ventana de 90 dias:
 //!
 //!   1. Decaimiento: un item ACTIVE sin recall ni modificacion en la ventana
-//!      pasa a `stale` (no se borra; sale del retriever y del indice denso).
+//!      pasa a `stale` (no se borra; sale del retriever).
 //!   2. Poda del log: los `memory_events` de items en `deprecated`/`rejected`
 //!      anteriores a la ventana se borran. Los eventos de items activos o stale
 //!      quedan intactos: el event-sourcing sigue completo para lo vivo.

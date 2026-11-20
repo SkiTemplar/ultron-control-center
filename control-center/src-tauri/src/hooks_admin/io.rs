@@ -218,6 +218,10 @@ where
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default(),
             content: serde_json::json!({}),
+            // Sin snapshot legible (ausente o corrupto) se guarda sobre lo que
+            // haya ahora en disco, como antes; el guardado sigue rechazando si
+            // cambia entre esta huella y la escritura.
+            content_hash: settings::current_content_hash()?,
             modified: None,
             size_bytes: 0,
             backup_dir: String::new(),
@@ -242,7 +246,10 @@ where
 
     let payload = f(hooks_obj)?;
 
-    let save = settings::settings_save_inner(settings::SettingsSavePayload { content })?;
+    let save = settings::settings_save_inner(settings::SettingsSavePayload {
+        content,
+        expected_hash: snapshot.content_hash,
+    })?;
     Ok((payload, save.backup_path))
 }
 

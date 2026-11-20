@@ -37,41 +37,6 @@ pub use ranking::build_prompt_plan;
 pub use rules::{classify_intent, detect_cross_project};
 pub use types_model::{AgentChoice, OrchestrationContext, PromptPlan, SkillChoice, WorkflowChoice};
 
-/// Tauri command: run the orchestrator for a prompt (the "Ultron" trigger).
-#[tauri::command]
-/// Devuelve el `OrchestrationContext` ya serializado. Es `Value` y no el tipo
-/// porque la respuesta puede venir tal cual del daemon (que serializa ese mismo
-/// tipo): así se evita añadir `Deserialize` en cascada a media docena de
-/// structs solo para volver a serializarlos al cruzar a la UI. La forma del
-/// JSON es idéntica en los dos caminos.
-pub async fn orchestrate_prompt(
-    prompt: String,
-    project_id: Option<String>,
-) -> Result<serde_json::Value, String> {
-    // Manual on-demand invocation (Preview panel). It asks for dense (E5
-    // catalog + hybrid recall), but `orchestrate` only honours it when
-    // ULTRON_DENSE is on; with ULTRON_DENSE=0 (this machine since 2026-09-28)
-    // it runs sparse-only and says so in `warnings`. This is the FULL
-    // orchestration: in session the hook runs in light mode (tone only)
-    // unless ULTRON_ORCHESTRATE=full, and the panel labels it that way.
-    tauri::async_runtime::spawn_blocking(move || {
-        // Primero el daemon: tiene E5 caliente y evita que la GUI cargue su
-        // propia copia del modelo (~1,5 GB residentes medidos el 2026-08-15).
-        // Si no contesta, se resuelve aqui como siempre.
-        if let Some(v) = crate::daemon_client::orchestrate(
-            &prompt,
-            project_id.as_deref(),
-            std::time::Duration::from_secs(25),
-        ) {
-            return Ok(v);
-        }
-        let ctx = orchestrate(&prompt, project_id.as_deref(), true);
-        serde_json::to_value(&ctx).map_err(|e| format!("serialize orchestration: {e}"))
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
-}
-
 // ---------------------------------------------------------------------------
 // Personalities v1 (2026-08-13) — Library → Tones + playground de detección.
 // ---------------------------------------------------------------------------

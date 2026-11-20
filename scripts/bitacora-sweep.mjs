@@ -12,7 +12,7 @@
 // sesiones que llevan >= INACTIVE_MIN minutos sin escribirse y aun no tienen
 // resumen (o tienen uno VIEJO). Pensado para correr cada 15 min via tarea
 // programada (scripts/install-bitacora-sweep.ps1, mismo patron oculto que el
-// watchdog de Qdrant: scripts/qdrant/install-qdrant-watchdog.ps1).
+// watchdog de Qdrant, retirado el 2026-11-14).
 //
 // NO duplica la generacion: toda la seleccion fina (summary VIEJO vs
 // cubierto, backoff, "ya sabemos que es trivial") y la generacion en si
@@ -50,6 +50,7 @@ const summarizer = require(REAL_SUMMARIZER);
 const lastSession = require(path.join(HOOKS, 'lib', 'last-session.js'));
 const digest = require(path.join(HOOKS, 'lib', 'session-digest.js'));
 const { appendJsonl } = require(path.join(HOOKS, 'lib', 'jsonl-log.js'));
+const deferred = require(path.join(HOOKS, 'lib', 'deferred-hooks.js'));
 
 const HOME = os.homedir();
 const LOG_PATH = process.env.BITACORA_SWEEP_LOG || path.join(HOME, '.ultron', 'logs', 'session-summary.jsonl');
@@ -58,6 +59,24 @@ const SUMMARIZER_SCRIPT = process.env.BITACORA_SWEEP_SUMMARIZER || REAL_SUMMARIZ
 const DEFAULT_MAX = 3;
 const DEFAULT_INACTIVE_MIN = 20;
 const SWEEP_LOCK_ID = '__bitacora_sweep__';
+const DEFERRED_LOG_PATH = process.env.BITACORA_SWEEP_DEFERRED_LOG || path.join(HOME, '.ultron', 'logs', 'deferred-hooks.jsonl');
+// Hooks de SessionEnd que solo encolan (lib/deferred-hooks.js): aqui, fuera del
+// Job Object de Sessions, se ejecutan de verdad.
+const DEFERRED_HOOKS = [
+  { id: 'lesson-distill', script: path.join(HOOKS, 'lesson-distill.js') },
+  { id: 'project-profile', script: path.join(HOOKS, 'project-profile.js') },
+];
+
+/** Ejecuta la cola de SessionEnd; en dry-run solo cuenta lo pendiente. */
+function drainDeferred(dryRun) {
+  if (dryRun) {
+    for (const h of DEFERRED_HOOKS) console.log(`  [dry-run] cola ${h.id}: ${deferred.pending(h.id).length}`);
+    return;
+  }
+  const results = deferred.drain(DEFERRED_HOOKS, { spawnSync });
+  for (const r of results) appendJsonl(DEFERRED_LOG_PATH, { trigger: 'sweep', ...r });
+  if (results.length > 0) console.log(`bitacora-sweep: ${results.length} entrada(s) de la cola de SessionEnd`);
+}
 
 function parseArgs(argv) {
   const out = { dryRun: false, max: null, project: null };
@@ -259,6 +278,9 @@ function main() {
   }
 
   try {
+    // Antes de la pausa por cuota: la cola no usa el plan de Claude (lesson-distill
+    // y project-profile consultan al daemon, con proveedores propios).
+    drainDeferred(args.dryRun);
     // Cuota del plan agotada: ni se lanza el resumidor (cada intento seria un
     // fallo seguro y, antes del 2026-09-27, un paso mas hacia el abandono).
     const coolMs = summarizer.quotaCooldownRemainingMs();

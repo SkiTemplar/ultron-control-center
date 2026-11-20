@@ -34,8 +34,7 @@ On every `SessionStart`, ULTRON:
 | L2 | `~/.ultron-vault/` | curated markdown corpus |
 | L3 | remote git (optional) | off-machine mirror of L2 |
 
-Optionally, a Qdrant collection (`ultron_memory`) for dense recall. The code
-default is ON; `ULTRON_DENSE=0` turns it off and recall stays sparse FTS5.
+Recall is sparse FTS5 (the dense Qdrant path was removed on 2026-11-14).
 
 ## Dispatch
 

@@ -67,7 +67,6 @@ pub(super) fn check_inbox() -> DoctorCheck {
             c,
             chrono::Utc::now().timestamp_millis(),
             crate::memory::auto_approve::auto_approve_enabled(),
-            crate::qdrant::dense_enabled(),
         ),
         Err(e) => DoctorCheck::warn(
             "inbox",
@@ -81,22 +80,16 @@ pub(super) fn check_inbox() -> DoctorCheck {
 /// auto-approve activo → Warn: esos candidatos no se aprobarán solos. Con el
 /// auto-approve apagado nada se aprueba solo de todas formas → Ok, pero el
 /// detalle lo dice (nunca callado).
-pub(super) fn inbox_verdict(
-    counts: InboxCounts,
-    now_ms: i64,
-    auto_approve: bool,
-    dense: bool,
-) -> DoctorCheck {
+pub(super) fn inbox_verdict(counts: InboxCounts, now_ms: i64, auto_approve: bool) -> DoctorCheck {
     let oldest_days = counts
         .oldest_unjudged_ms
         .map(|ms| ((now_ms - ms).max(0)) / DAY_MS);
-    let judge_neighbours = if dense { "dense" } else { "fts5" };
     let data = serde_json::json!({
         "pending": counts.pending,
         "unjudged": counts.unjudged,
         "oldest_unjudged_days": oldest_days,
         "auto_approve": auto_approve,
-        "judge_neighbours": judge_neighbours,
+        "judge_neighbours": "fts5",
         "repair": "ultron-memory inbox drain --auto",
     });
     if counts.unjudged <= 0 {
@@ -109,11 +102,7 @@ pub(super) fn inbox_verdict(
     let antiguedad = oldest_days
         .map(|d| format!("; el más antiguo, de hace {d} día(s)"))
         .unwrap_or_default();
-    let causa = if dense {
-        "el juez busca vecinos en Qdrant y la infra no respondió: revisa los checks qdrant"
-    } else {
-        "el juez busca vecinos por FTS5 (ULTRON_DENSE=0); si no bajan, el binario es anterior al juez por FTS5 o el router del juez no responde"
-    };
+    let causa = "el juez busca vecinos por FTS5; si no bajan, el binario es anterior al juez por FTS5 o el router del juez no responde";
     let resumen = format!(
         "{} de {} candidato(s) pendientes sin juzgar (`unjudged`){antiguedad}; {causa}; re-verificación: `ultron-memory inbox drain --auto`",
         counts.unjudged, counts.pending
@@ -250,14 +239,14 @@ mod tests {
 
     #[test]
     fn inbox_without_unjudged_is_ok() {
-        let c = inbox_verdict(counts(12, 0, None), NOW, true, false);
+        let c = inbox_verdict(counts(12, 0, None), NOW, true);
         assert_eq!(c.severity, Severity::Ok, "detail={}", c.detail);
     }
 
     #[test]
     fn inbox_unjudged_with_auto_approve_warns_and_says_why() {
         // Caso del hallazgo H11: todo el inbox sin juzgar con auto-approve activo.
-        let c = inbox_verdict(counts(677, 677, Some(15)), NOW, true, false);
+        let c = inbox_verdict(counts(677, 677, Some(15)), NOW, true);
         assert_eq!(c.severity, Severity::Warn, "detail={}", c.detail);
         assert!(c.detail.contains("677 de 677"), "detail={}", c.detail);
         assert!(c.detail.contains("FTS5"), "detail={}", c.detail);
@@ -269,17 +258,10 @@ mod tests {
     }
 
     #[test]
-    fn inbox_unjudged_with_dense_points_to_qdrant() {
-        let c = inbox_verdict(counts(3, 2, Some(0)), NOW, true, true);
-        assert_eq!(c.severity, Severity::Warn);
-        assert!(c.detail.contains("Qdrant"), "detail={}", c.detail);
-    }
-
-    #[test]
     fn inbox_unjudged_without_auto_approve_is_ok_but_not_silent() {
         // Caso negativo del Warn: sin auto-approve nada se aprueba solo, pero el
         // recuento sigue en el detalle.
-        let c = inbox_verdict(counts(5, 4, Some(1)), NOW, false, false);
+        let c = inbox_verdict(counts(5, 4, Some(1)), NOW, false);
         assert_eq!(c.severity, Severity::Ok, "detail={}", c.detail);
         assert!(c.detail.contains("4 de 5"), "detail={}", c.detail);
     }

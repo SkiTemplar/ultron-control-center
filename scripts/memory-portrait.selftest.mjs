@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { mergePortrait, parseModelJson, claimId, buildPrompt, isFresh, readMemoryFiles, BLOCKS } from './memory-portrait.mjs';
+import { mergePortrait, parseModelJson, claimId, buildPrompt, isFresh, readMemoryFiles, isNearDuplicate, BLOCKS } from './memory-portrait.mjs';
 
 let fail = 0;
 const A = (c, n, d) => {
@@ -54,6 +54,22 @@ const p2 = mergePortrait(raw, previous, meta);
 const q2 = p2.bloques.find((b) => b.id === 'quien_es').afirmaciones;
 A(!q2.some((a) => a.texto === 'Estudia informática'), 'merge: una afirmación descartada no reaparece', JSON.stringify(q2));
 A(q2.some((a) => a.texto === 'Hace el TFG' && a.estado === 'confirmed'), 'merge: una confirmada se conserva aunque el modelo la omita', JSON.stringify(q2));
+
+// Reformulación de una confirmada (caso real del retrato del 2026-11-09): no
+// entra como afirmación nueva; una afirmación distinta sí entra.
+const confirmadaCoo = 'Fundador y COO de Oryntics, su empresa de soluciones de inteligencia artificial y formación para otras empresas.';
+const prevCoo = { bloques: [{ id: 'quien_es', afirmaciones: [{ id: claimId(confirmadaCoo), texto: confirmadaCoo, fuentes: [], estado: 'confirmed' }] }] };
+const rawCoo = {
+  bloques: [{ id: 'quien_es', afirmaciones: [
+    { texto: 'Es fundador y COO de Oryntics, su empresa de soluciones de inteligencia artificial y formación para otras empresas.', fuentes: [] },
+    { texto: 'Escribe una saga de fantasía histórica en trilogía.', fuentes: [] },
+  ] }],
+};
+const q3 = mergePortrait(rawCoo, prevCoo, meta).bloques.find((b) => b.id === 'quien_es').afirmaciones;
+A(q3.filter((a) => /Oryntics/.test(a.texto)).length === 1, 'merge: una reformulación de una confirmada no la duplica', JSON.stringify(q3));
+A(q3.some((a) => /saga/.test(a.texto) && a.estado === 'none'), 'merge NEGATIVO: una afirmación distinta sí entra', JSON.stringify(q3));
+A(isNearDuplicate('Prefiere commits pequeños y atómicos, con mensajes cortos y sin Co-Authored-By ni mega-commits.', 'Prefiere commits pequeños y atómicos, sin Co-Authored-By ni mega-commits, con mensajes cortos.'), 'isNearDuplicate: mismo hecho reordenado', '');
+A(!isNearDuplicate('Hace mods Lua para RDR2.', 'Escribe una saga de fantasía histórica.'), 'isNearDuplicate NEGATIVO: hechos distintos', '');
 
 // El prompt lleva las marcas y las fuentes.
 const prompt = buildPrompt({ memories: [{ id: 'abc', type: 'preference', title: 'T', summary: 'S' }], files: [], previous });

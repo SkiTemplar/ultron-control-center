@@ -18,14 +18,6 @@ user's home, forward-slash form). `node hooks/regen-manifest.js --check` fails
 on drift and runs in pre-commit; `tests/test_hooks_template.py` (CI job
 `python-tests`) checks that the template only references scripts in the repo.
 
-## Qdrant boot helpers (not Claude Code hooks)
-
-The native Qdrant launcher scripts live under `scripts/qdrant/`:
-`ensure-qdrant.ps1` / `ensure-qdrant.sh`, `qdrant-notify.ps1`, the hidden
-launchers (`*.vbs`), `install-qdrant-bootcheck.ps1` (scheduled task
-`ULTRON-QdrantBoot`) and `install-qdrant-watchdog.ps1` / `qdrant-watchdog.ps1`.
-Dense recall is optional: with `ULTRON_DENSE=0` the app does not launch Qdrant.
-
 ## Test a hook locally
 
 ```bash

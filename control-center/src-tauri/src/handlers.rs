@@ -157,8 +157,6 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         // `ultron-memory.exe` (inbox, recall, reindex), sin invoke desde la GUI.
         commands::memory::memory_health,
         commands::memory::memory_stats,
-        // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
-        orchestrator::orchestrate_prompt,
         // -- PERSONALITIES v1 (2026-08-13): tonos editables + playground de deteccion --
         // Library -> Tones sobre ~/.ultron/personality.json; la deteccion vive
         // DENTRO de orchestrate() (hot path del sidecar, cero hooks nuevos).
@@ -229,6 +227,7 @@ pub(crate) fn all() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + 
         sesiones::comandos_v2::sesiones_transcribe,
         sesiones::comandos::sesiones_usage_pace,
         sesiones::comandos::sesiones_engines_usage,
+        sesiones::comandos::sesiones_delegations,
         sesiones::comandos::sesiones_open_image,
         sesiones::comandos::sesiones_reveal_path,
         sesiones::comandos::sesiones_open_file,

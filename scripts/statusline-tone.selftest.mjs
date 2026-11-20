@@ -7,7 +7,7 @@
  * nada y la statusline se quedaba sin tono.
  *
  * Usa logs y verbos temporales (ULTRON_SESSION_TONE_LOG,
- * ULTRON_STATUSLINE_ORCH_LOG, ULTRON_STATUSLINE_TONE_STATUS): no toca los reales.
+ * ULTRON_STATUSLINE_TONE_STATUS): no toca los reales.
  * El tono por defecto sale de un HOME temporal con un personality.json minimo
  * (hooks/scripts/tests/fixture-personality.js): el real no se versiona y en el
  * runner del CI no existe.
@@ -16,7 +16,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +40,6 @@ const env = {
   ...fixtureHomeEnv(home),
   ULTRON_ORCHESTRATE: "",
   ULTRON_SESSION_TONE_LOG: join(dir, "session-tone.jsonl"),
-  ULTRON_STATUSLINE_ORCH_LOG: join(dir, "orchestrate.jsonl"),
   ULTRON_STATUSLINE_TONE_STATUS: join(dir, "tone-status.json"),
 };
 writeFileSync(env.ULTRON_STATUSLINE_TONE_STATUS, JSON.stringify({ ultron: "Procesando", cani: "Petándolo" }));
@@ -64,9 +63,11 @@ try {
   // Otra sesión sin entradas no hereda el tono (caso negativo).
   A(!/ULTRON·|CANI·/.test(statusline("st-otra")), "una sesión sin prompts no pinta tono", statusline("st-otra"));
 
-  // Sin log ligero, sigue leyendo el del modo completo.
-  writeFileSync(env.ULTRON_STATUSLINE_ORCH_LOG, JSON.stringify({ session_id: "st-completo", tone: { id: "cani" } }) + "\n");
-  A(/CANI·PETÁNDOLO/.test(statusline("st-completo")), "el modo completo sigue funcionando", statusline("st-completo"));
+  // orchestrate.jsonl (log del modo completo, retirado) ya no se lee (caso negativo).
+  const legacyLogs = join(home, ".claude", "logs");
+  mkdirSync(legacyLogs, { recursive: true });
+  writeFileSync(join(legacyLogs, "orchestrate.jsonl"), JSON.stringify({ session_id: "st-completo", tone: { id: "cani" } }) + "\n");
+  A(!/CANI·/.test(statusline("st-completo")), "orchestrate.jsonl ya no aporta tono", statusline("st-completo"));
 } finally {
   rmSync(dir, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });

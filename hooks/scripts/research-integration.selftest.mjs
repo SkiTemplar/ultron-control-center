@@ -19,13 +19,6 @@ const LIB = join(__dirname, 'lib', 'research');
 
 process.env.RESEARCH_ROOT_OVERRIDE = mkdtempSync(join(tmpdir(), 'research-selftest-'));
 process.env.RESEARCH_CACHE_DIR_OVERRIDE = mkdtempSync(join(tmpdir(), 'research-selftest-cache-'));
-// Hermetico de verdad: el re-rank semantico habla por TCP con el daemon real
-// (no pasa por el fetch simulado), asi que este selftest lo desactiva y
-// verifica el camino de degradacion explicita (ver research-ranking.selftest
-// para el semantico real end-to-end contra el daemon vivo).
-process.env.RESEARCH_DISABLE_SEMANTIC = '1';
-// ULTRON_DENSE=0 de la maquina cambiaria el aviso esperado: fuera del entorno.
-delete process.env.ULTRON_DENSE;
 
 const { installMockFetch } = require(join(LIB, '__fixtures__', 'mock-fetch.js'));
 const openalexFixture = require(join(LIB, '__fixtures__', 'openalex-search.json'));
@@ -62,7 +55,7 @@ async function testSearchEndToEnd() {
   try {
     const { search } = require(join(LIB, 'search.js'));
     const { results, warnings, totalBeforeFilter } = await search('synthetic data sim-to-real object detection drones', { limit: 5 });
-    A(warnings.length === 1 && warnings[0].includes('re-rank semantico no disponible'), 'search: ambas fuentes responden, solo avisa que el semantico esta desactivado (RESEARCH_DISABLE_SEMANTIC)', JSON.stringify(warnings));
+    A(warnings.length === 0, 'search: ambas fuentes responden y no hay avisos', JSON.stringify(warnings));
     A(totalBeforeFilter === 4, 'search: 6 normalizados fusionan en 4 unicos', String(totalBeforeFilter));
     // Este test verifica el CABLEADO (dedupe/merge/orden con razon), no la calidad del
     // ranking -- eso lo cubre research-ranking.selftest.mjs con fixtures etiquetados a mano.

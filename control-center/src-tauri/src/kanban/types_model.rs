@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 
 /// Process-wide write lock for kanban RMW operations (threads of this app).
 /// Always taken through `board_io::lock_board`, which also takes the
-/// cross-process file lock `kanban.json.lock` (`file_lock.rs`) shared with the
+/// cross-process file lock `kanban.json.lock` (`crate::file_lock`) shared with the
 /// kanban-auto hook and scripts/kanban.mjs. Covers card and column CRUD,
 /// `archive_done` and `load` (which may persist its self-healing).
 /// `list_archives` and `load_archive` are excluded.

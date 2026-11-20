@@ -13,9 +13,9 @@ Detects deprecated/dead fragments inside live source files. Three stages:
                                and _OLD/_DEAD/_UNUSED suffixes. Suppresses
                                matches inside Python triple-quoted spans.
 
-    Stage 3 — Cross-reference. ultron.ps1 stub branches, settings.json
-                               hook paths, health.py EXPECTED_SCRIPTS
-                               drift, manifest vs disk.
+    Stage 3 — Cross-reference. settings.json hook paths. (The ultron.ps1 and
+                               health.py cross-checks left with those
+                               scripts on 2026-11-14.)
 
 Stages 4 (behavioural smoke) and 6 (doctor integration) are deferred to
 later Genesis-14.1 phases.
@@ -333,57 +333,6 @@ def _scan_one(path: Path) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 
-# M5: accept single-quoted, double-quoted, default, and * cases.
-# Group 2 captures the case name; group 1 is the (optional) opening quote.
-_PS1_CASE = re.compile(r'^\s*(["\']?)([\w-]+|default|\*)\1\s*\{')
-_PS1_STUB = re.compile(r"removed in v\d+\.\d+", re.IGNORECASE)
-_PS1_CASE_BODY_LOOKAHEAD = 20  # L3: name the magic number
-_HELP_LINE = re.compile(
-    r'^\s*Write-Host\s+"\s*([\w-]+)\b', re.IGNORECASE
-)
-
-
-def _xref_ultron_ps1(ps1_path: Path | None = None) -> list[Finding]:
-    ps1 = ps1_path or (COCKPIT_DIR / "ultron.ps1")
-    if not ps1.exists():
-        return []
-    text = ps1.read_text(encoding="utf-8", errors="replace")
-    lines = text.splitlines()
-
-    cases: list[tuple[str, int]] = []
-    seen: set[str] = set()
-    for i, line in enumerate(lines, 1):
-        m = _PS1_CASE.match(line)
-        if m:
-            name = m.group(2)
-            if name not in seen:
-                cases.append((name, i))
-                seen.add(name)
-
-    sent_mask = _sentinel_mask(lines)
-
-    findings: list[Finding] = []
-    for idx, (name, start) in enumerate(cases):
-        next_start = cases[idx + 1][1] if idx + 1 < len(cases) else len(lines) + 1
-        end = min(next_start - 1, start + _PS1_CASE_BODY_LOOKAHEAD)
-        body = "\n".join(lines[start:end])
-        if _PS1_STUB.search(body):
-            wrapped = sent_mask[start - 1] if 0 <= start - 1 < len(sent_mask) else False
-            findings.append(Finding(
-                file=str(ps1),
-                line_start=start,
-                line_end=end,
-                kind="xref",
-                severity="info" if wrapped else "warn",
-                pattern="STUB_DISPATCH",
-                snippet=(f'switch case "{name}" stub (already sentinel-annotated)'
-                         if wrapped else
-                         f'switch case "{name}" body announces removal'),
-                fields={"command": name, "sentinel_wrapped": wrapped},
-            ))
-    return findings
-
-
 _QUOTED_TOKEN = re.compile(r'"([^"]+)"|\'([^\']+)\'')
 _BARE_PATH_TOKEN = re.compile(r"([A-Za-z]:\\[^\s\"']+|/[^\s\"']+|~[^\s\"']*)")
 _SCRIPT_SUFFIXES = frozenset({".py", ".ps1", ".sh", ".js", ".ts", ".cmd", ".bat"})
@@ -449,69 +398,6 @@ def _xref_settings_hooks(settings_path: Path | None = None) -> list[Finding]:
     return findings
 
 
-def _xref_health_expected_scripts(health_path: Path | None = None,
-                                   cockpit_dir: Path | None = None) -> list[Finding]:
-    health = health_path or (COCKPIT_DIR / "health.py")
-    cock = cockpit_dir or COCKPIT_DIR
-    if not health.exists() or not cock.exists():
-        return []
-    text = health.read_text(encoding="utf-8", errors="replace")
-    expected: set[str] = set()
-    try:
-        import ast
-        tree = ast.parse(text)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-                if "EXPECTED_SCRIPTS" not in names:
-                    continue
-                value = node.value
-                if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
-                    for elt in value.elts:
-                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                            expected.add(elt.value)
-                break
-    except (SyntaxError, ValueError) as exc:
-        # M4: don't silently return [] — surface the unparseability so a
-        # broken health.py is visible to whoever runs the scanner.
-        return [Finding(
-            file=str(health),
-            line_start=0,
-            line_end=0,
-            kind="xref",
-            severity="warn",
-            pattern="HEALTH_PY_UNPARSEABLE",
-            snippet=f"ast.parse({health.name}) failed: {type(exc).__name__}: {exc}",
-            fields={"error_type": type(exc).__name__},
-        )]
-    if not expected:
-        return []
-    # Helpers (`_foo.py`) and test files (`test_*.py`) are intentionally
-    # absent from EXPECTED_SCRIPTS; they're not user-facing scripts.
-    actual = {
-        p.name for p in cock.glob("*.py")
-        if p.is_file()
-        and not p.name.startswith("_")
-        and not p.name.startswith("test_")
-    }
-    missing_from_expected = sorted(actual - expected - {"__init__.py"})
-    if not missing_from_expected:
-        return []
-    return [Finding(
-        file=str(health),
-        line_start=0,
-        line_end=0,
-        kind="xref",
-        severity="warn",
-        pattern="HEALTH_EXPECTED_SCRIPTS_DRIFT",
-        snippet=f"{len(missing_from_expected)} cockpit scripts not declared in EXPECTED_SCRIPTS",
-        fields={
-            "missing_count": len(missing_from_expected),
-            "sample": missing_from_expected[:10],
-        },
-    )]
-
-
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -521,9 +407,7 @@ def run_scan(roots: list[Path]) -> list[Finding]:
     findings: list[Finding] = []
     for path in _iter_targets(roots):
         findings.extend(_scan_one(path))
-    findings.extend(_xref_ultron_ps1())
     findings.extend(_xref_settings_hooks())
-    findings.extend(_xref_health_expected_scripts())
     findings.sort(key=lambda f: (f.file, f.line_start, f.pattern))
     return findings
 

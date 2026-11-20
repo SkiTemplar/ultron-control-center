@@ -25,6 +25,18 @@ fn notify_only_on_positive_exit_and_when_enabled() {
     );
 }
 
+/// Al cerrar Sessions con una sesión abierta, Windows termina el proceso con
+/// DBG_TERMINATE_PROCESS (0x40010004 = 1073807364): es un cierre, no un fallo.
+#[test]
+fn closing_the_console_is_not_a_session_error() {
+    assert!(!should_notify_session_error(0x4001_0004, true));
+    assert!(!should_notify_session_error(1_073_807_364, true));
+    assert!(
+        should_notify_session_error(0x4001_0005, true),
+        "solo ese código"
+    );
+}
+
 #[test]
 fn build_command_rejects_unknown_provider() {
     let r = build_command("nope", None);

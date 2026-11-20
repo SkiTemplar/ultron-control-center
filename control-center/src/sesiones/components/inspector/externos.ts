@@ -20,6 +20,8 @@ export interface ExternalRun {
   label: string;
   description: string;
   status: ExternalStatus;
+  /** Modelo pedido en la orden (`--model`, `-m`); `null` si usa el del motor por defecto. */
+  model: string | null;
 }
 
 /** Tope de filas: una sesión larga acumula muchas revisiones. */
@@ -40,8 +42,19 @@ const RULES: { engine: EngineId; label: string; re: RegExp }[] = [
   { engine: "opencode", label: "OpenCode", re: new RegExp(String.raw`${START}(?:\S*[\\/])?opencode(?:\.exe|\.cmd)?\s+run\b`) },
 ];
 
+const MODEL_FLAG = /(?:^|\s)(?:--model|-m)(?:=|\s+)["']?([A-Za-z0-9][\w.:/-]*)/;
+
+/** Texto entre comillas con espacios (el prompt): un `-m` de dentro no es un flag. */
+const QUOTED_TEXT = /"[^"]*\s[^"]*"|'[^']*\s[^']*'/g;
+
+/** Regla y modelo de la primera línea de la orden que delega. */
 function matchRule(command: string) {
-  return RULES.find((r) => command.split("\n").some((line) => r.re.test(line.trim()))) ?? null;
+  for (const raw of command.split("\n")) {
+    const line = raw.trim();
+    const rule = RULES.find((r) => r.re.test(line));
+    if (rule) return { ...rule, model: MODEL_FLAG.exec(line.replace(QUOTED_TEXT, '""'))?.[1] ?? null };
+  }
+  return null;
 }
 
 function bashInput(input: unknown): { command: string; description: string; background: boolean } | null {
@@ -100,6 +113,7 @@ export function externalRuns(messages: readonly ChatMessage[], sessionStatus?: S
         engine: rule.engine,
         label: rule.label,
         description: input.description,
+        model: rule.model,
         status: statusOf(results.get(b.id), input.background, () => isStopped || turnEndedAfter(messages, index)),
       });
     }

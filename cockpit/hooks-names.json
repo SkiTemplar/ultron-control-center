@@ -7,10 +7,6 @@
     "name": "memory-session-resume",
     "strategy": "ai"
   },
-  "hk_2b2e10e1d24e": {
-    "name": "ensure-qdrant-startup",
-    "strategy": "ai"
-  },
   "hk_7e49fb57b658": {
     "name": "load-project-memory",
     "strategy": "ai"
@@ -33,14 +29,6 @@
   },
   "hk_c2de638b8812": {
     "name": "notify-on-stop",
-    "strategy": "ai"
-  },
-  "hk_c3bd0f08e7c8": {
-    "name": "memory-warmup-hook",
-    "strategy": "ai"
-  },
-  "hk_d0f165572564": {
-    "name": "session-end-summary",
     "strategy": "ai"
   },
   "hk_d47d09e932f8": {

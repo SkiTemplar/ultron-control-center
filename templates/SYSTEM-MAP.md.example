@@ -7,10 +7,8 @@ Stable pointers to where things live. Read this instead of grepping the repo.
   single writer: the `ultron-memory` sidecar (`~/.ultron/bin/ultron-memory.exe`).
 - Session context enters through the SessionStart resume and the per-project
   log in `~/.ultron/cockpit/projects/<id>/estado.json`.
-- Dense recall (optional): Qdrant at http://localhost:6333, collection
-  `ultron_memory`. `ULTRON_DENSE=0` turns it off and recall stays sparse FTS5.
-- Vault index (cockpit scripts): `~/.ultron/brain_index/index.db` over
-  `~/.ultron-vault/` (curated markdown).
+- Recall: sparse FTS5 over `brain.db` (no dense index).
+- Vault: `~/.ultron-vault/` (curated markdown).
 
 ## Code
 - Control Center (Tauri app): `~/.ultron/control-center/`

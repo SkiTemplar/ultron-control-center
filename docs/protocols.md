@@ -6,26 +6,11 @@ they are invoked manually or by scheduled tasks on a known cadence.
 
 ---
 
-## Auto-memory audit protocol
-
-**Script:** `scripts/memory-audit.py`
-**Cadence:** Manual. No hook or Control Center caller runs it.
-
-Audits the Claude Code auto-memory files
-(`~/.claude/projects/*/memory/*.md`, not `brain.db`) and reports entries
-without frontmatter, with an invalid `type`, oversized without structure,
-duplicated (Jaccard similarity >= 0.80), stale, or missing from the
-`MEMORY.md` index. It is read-only except for `--fix-index`, which appends
-the orphan entries to `MEMORY.md`.
-
-```powershell
-uv run python scripts/memory-audit.py
-uv run python scripts/memory-audit.py --fix-index
-```
+## Governed memory maintenance
 
 The governed memory (`brain.db`) has its own maintenance: the SessionEnd hook
 `memory-gc.js` runs `ultron-memory gc --days 90` at most once a week, and
-`ultron-memory doctor` checks the FTS5 and Qdrant indexes.
+`ultron-memory doctor` checks the FTS5 index.
 
 ---
 
@@ -75,41 +60,6 @@ uv run python scripts/cockpit/audit_personal_data.py --strict
 
 A non-zero HIGH count blocks the release. Resolve by removing or
 generalizing the offending content, then re-stage and re-run.
-
----
-
-## Routing regression protocol
-
-**Scripts:** `cockpit/skill-lazy/_verify_final.js`, `cockpit/skill-lazy/_accuracy_at3.js`
-**Cadence:** After every edit to the skill dispatcher or `config/intent-rules.yaml`.
-
-The dispatcher (`routing-dispatcher.v2.js` + `v3.js`) is not wired as a
-Claude Code hook since 2026-09-29, but its harnesses and the CI job
-`routing-dispatcher` still guard it. Both must stay green:
-
-```powershell
-node cockpit/skill-lazy/_verify_final.js
-node cockpit/skill-lazy/_accuracy_at3.js
-```
-
-The old `scripts/routing-test-runner.py` (it ran a v1 dispatcher that no
-longer exists) was removed on 2026-10-08.
-
----
-
-## Skill-catalog rebuild protocol
-
-**Script:** `scripts/skill-discovery.py`
-**Cadence:** When adding or removing skills from `~/.claude/skills/`.
-
-One-off scan that detects skills not mapped in FAST PATH Layer 1/2.
-After running, update `cockpit/skill-lazy/routing-dispatcher.v2.js` (and
-v3) to cover any newly discovered skills; remember the dispatcher is not
-wired as a hook today.
-
-```powershell
-uv run python scripts/skill-discovery.py --verbose
-```
 
 ---
 

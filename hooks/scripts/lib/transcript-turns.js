@@ -3,9 +3,7 @@
 // hooks/scripts/lib/transcript-turns.js — turnos de texto de un transcript
 // JSONL de Claude Code, a partir de su cola acotada (readJsonlTail).
 //
-// Compartido por `session-end-summary` (resumen de cierre) y `lesson-distill`
-// (destilado de lecciones, ULTRON 4 F1.2). Antes vivía como `parseTurns`
-// dentro de session-end-summary.js.
+// Lo usa `lesson-distill` (destilado de lecciones, ULTRON 4 F1.2).
 //
 // Devuelve [{ role, text }] con role en 'user' | 'assistant' | 'tool_error'.
 // Los `tool_error` son bloques `tool_result` con `is_error: true` dentro de

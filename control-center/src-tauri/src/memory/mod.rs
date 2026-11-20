@@ -1,8 +1,8 @@
 // ULTRON Control Center — MemoryStore trait (KIRKARDO 21 design doc 9/10)
 //
 // Introduces a unified abstraction over the active memory backends:
-//   - SqliteStore : brain.db (memory_items + FTS5), fuente de verdad
-//   - QdrantStore : indice denso opcional (apagado con ULTRON_DENSE=0)
+//   - SqliteStore : brain.db (memory_items + FTS5), fuente de verdad y único
+//     backend (el índice denso se retiró el 2026-11-14)
 //
 // El orquestador `HybridRecall` se eliminó (2026-07-04): el path canónico de
 // recall es `recall_unified::recall_pack`.
@@ -146,7 +146,6 @@ pub enum StoreKind {
     Ecc,
     Mock,
     Sqlite,
-    Qdrant,
 }
 
 // Auto-approve policy: persisted `auto_approve` setting + the "clean candidate"
@@ -155,14 +154,11 @@ pub mod auto_approve;
 pub mod backfill;
 pub mod capture;
 pub mod catalog;
-pub mod catalog_warm;
 pub mod curate;
 // Log de descartes del write-path (captura + gate anti-paráfrasis), redactado y con rotación.
 pub(crate) mod discard_log;
 pub mod doctor;
 pub mod model;
-pub mod qdrant_index;
-pub mod qdrant_store;
 pub mod recall_policy;
 pub mod schema_v3;
 // Schema v5 (2026-07-02): RETIRADA del codegraph interno (drop edges +
@@ -175,7 +171,7 @@ pub mod ai_tasks;
 pub mod contradiction;
 pub mod evals;
 // OLA C: pure ranking-quality metrics (precision@k/recall@k/MRR/nDCG/context-waste)
-// for the golden set. No I/O — unit-testable without Qdrant. See evals.rs for the loader.
+// for the golden set. No I/O — unit-testable without a store. See evals.rs for the loader.
 pub mod eval_metrics;
 // OLA A (2026-06-04): write-path secret/PII detector. Built + tested in isolation;
 // wiring into MemoryService::create_candidate is gated on confirmation.

@@ -7,11 +7,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::MutexGuard;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::file_lock::BoardFileLock;
 use super::types_model::kanban_lock;
 use super::types_model::{
     Card, CardPartial, CardPatch, Column, ColumnRole, KanbanBoard, RunStatus, SCHEMA_VERSION,
 };
+use crate::file_lock::FileLock;
 
 /// Returns ~/.ultron/cockpit/projects/<project_id>/kanban.json
 pub fn board_path(project_id: &str) -> Result<PathBuf, String> {
@@ -115,7 +115,7 @@ pub fn infer_and_migrate_roles(board: &mut KanbanBoard) -> bool {
 /// kanban-auto y scripts/kanban.mjs). Orden fijo, Mutex y luego fichero, para
 /// que dos hilos de la app no compitan por el fichero con sus reintentos.
 pub(super) struct BoardWriteGuard {
-    _file: BoardFileLock,
+    _file: FileLock,
     _mutex: MutexGuard<'static, ()>,
 }
 
@@ -125,7 +125,7 @@ pub(super) fn lock_board(project_id: &str) -> Result<BoardWriteGuard, String> {
     let mutex = kanban_lock()
         .lock()
         .map_err(|_| "kanban lock poisoned".to_string())?;
-    let file = BoardFileLock::acquire(&board_path(project_id)?)?;
+    let file = FileLock::acquire(&board_path(project_id)?)?;
     Ok(BoardWriteGuard {
         _file: file,
         _mutex: mutex,

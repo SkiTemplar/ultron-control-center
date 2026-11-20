@@ -1,7 +1,7 @@
 // ULTRON Control Center — `ultron-memory doctor` (Control Plane · OLA M)
 //
 // Read-only health command. Operates the system without guessing: each check is
-// a pure `fn() -> DoctorCheck` that only READS (brain.db, Qdrant REST, disk, fs)
+// a pure `fn() -> DoctorCheck` that only READS (brain.db, disk, fs)
 // and never mutates. Reuses the canonical `Severity` (Ok < Warn < Error) and the
 // `{ checks, max_severity }` report shape from `diagnostics_native.rs` instead of
 // redefining them (SPEC-CONTROL-PLANE §2, reuse-over-rebuild).
@@ -20,10 +20,7 @@ use super::sqlite_store;
 #[path = "doctor_ops.rs"]
 mod ops;
 
-// Checks del índice denso (qdrant, reconcile) y del recall (evals): ficheros
-// aparte por el mismo motivo.
-#[path = "doctor_dense.rs"]
-mod dense;
+// Check del recall (evals): fichero aparte por el mismo motivo.
 #[path = "doctor_eval_gate.rs"]
 mod eval_gate;
 // Check `versions` (stale y binario compilado con el árbol sucio).
@@ -95,12 +92,6 @@ impl DoctorReport {
 #[must_use]
 pub fn run_doctor() -> DoctorReport {
     let mut checks = vec![check_sqlite(), check_fts()];
-    if crate::qdrant::dense_enabled() {
-        checks.extend(dense::check_qdrant_collections());
-        checks.push(dense::check_reconcile());
-    } else {
-        checks.push(dense::dense_off_check());
-    }
     checks.push(ops::check_inbox());
     checks.push(ops::check_gc());
     checks.push(eval_gate::check_evals());

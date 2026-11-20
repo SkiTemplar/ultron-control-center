@@ -1,37 +1,30 @@
 //! Persistent localhost daemon for the memory orchestrator (`ultron-memory serve`).
 //!
-//! WHY: each `ultron-memory orchestrate` invocation is a fresh OS process, so the
-//! global `E5_MODEL` `OnceCell` (multilingual-e5-large, ~1.3 GB ONNX) is re-loaded
-//! from scratch on every prompt. Measured cost: orchestrate cold = 3.1–4.8 s, of
-//! which ~1.8 s is just the model init. The UserPromptSubmit hook therefore pays
-//! 3–5 s BEFORE every assistant turn — the #1 latency cost of the whole system.
-//!
-//! FIX: a long-lived process keeps that `OnceCell` resident. The hot path becomes
-//! 3 warm embeds + 3 Qdrant loopback searches + FTS5/SQLite — sub-second. The
-//! daemon changes NO semantics: SQLite connections and the Qdrant HTTP client are
-//! still opened per request exactly as before; the only shared warm state is the
-//! E5 model that already lived in a process-global `OnceCell`.
+//! WHY: nació (2026-06) para mantener residente el modelo de embeddings que cada
+//! `ultron-memory orchestrate` one-shot recargaba en cada prompt. Desde el
+//! 2026-11-14 no hay ruta densa ni modelos: el daemon ahorra el arranque del
+//! proceso y sirve `orchestrate`/`recall` (FTS5 sobre brain.db) y los jueces LLM
+//! (`skill_judge`, `lesson_distill`, `profile_distill`). It changes NO
+//! semantics: SQLite connections are opened per request exactly as in the CLI.
 //!
 //! TRANSPORT: line-delimited JSON over TCP on `127.0.0.1` (loopback only), zero new
 //! dependencies (std::net + serde_json). A dynamic port (bind `:0`) + a per-launch
 //! token are published in `~/.ultron/run/orchestrate.json`. The token is anti-
 //! accident, NOT crypto: loopback is the real boundary (no remote can reach it).
 //!
-//! CICLO DE VIDA: lo arranca DESACOPLADO el hook `memory-warmup` de SessionStart.
+//! CICLO DE VIDA: lo arranca DESACOPLADO un hook (`ultron-memory serve`).
 //! Sale por una petición `shutdown` explícita y, solo si se configura una ventana
 //! de inactividad (`ULTRON_DAEMON_IDLE_MIN`, ver `DAEMON_IDLE_MIN_DEFAULT`), tras
-//! ese tiempo sin tráfico. Por defecto el proceso es RESIDENTE: los modelos ya se
-//! sueltan solos por inactividad, así que el daemon parado cuesta ~40 MB. El
-//! cliente siempre hace `ping` antes de fiarse del lockfile, de modo que un
-//! lockfile obsoleto (tras un crash) degrada al camino de spawn.
+//! ese tiempo sin tráfico. Por defecto el proceso es RESIDENTE. El cliente
+//! siempre hace `ping` antes de fiarse del lockfile, de modo que un lockfile
+//! obsoleto (tras un crash) degrada al camino de spawn.
 //!
 //! ESTRUCTURA (troceado 2026-09-10, cat7.3 — antes 1.053 líneas en un fichero):
 //! - `lockfile`: descubrimiento y propiedad (claim atómico, ping, retirada).
 //! - `protocol`: la petición JSON y el handler puro que la resuelve.
-//! - (`concurrency` se retiró el 2026-09-27: el semáforo de peticiones pesadas
-//!   que respondía "busy" lo sustituye el turno FIFO de inferencia de
-//!   `qdrant_inference_gate.rs`; las conexiones se atienden todas a la vez.)
-//! - `watchdog`: liberación de modelos por inactividad y guard de huérfano.
+//! - (`concurrency` se retiró el 2026-09-27: las conexiones se atienden todas a
+//!   la vez, cada una en su hilo.)
+//! - `watchdog`: guard de huérfano.
 //! - `request_log`: la traza JSONL de cada petición servida.
 //! - `tcp`: arranque del daemon y bucle de aceptación.
 //!

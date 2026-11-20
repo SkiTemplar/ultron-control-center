@@ -87,9 +87,9 @@ function build() {
   const buildRs = path.join(CRATE, 'build.rs');
   const now = new Date();
   fs.utimesSync(buildRs, now, now);
-  log('cargo build --release --features qdrant --bin ultron-memory (minutos)');
+  log('cargo build --release --bin ultron-memory (minutos)');
   // Trampa 1: nombre con guion y sin pipe que tape el exit code.
-  const r = spawnSync('cargo', ['build', '--release', '--features', 'qdrant', '--bin', 'ultron-memory'], {
+  const r = spawnSync('cargo', ['build', '--release', '--bin', 'ultron-memory'], {
     cwd: CRATE,
     stdio: 'inherit',
   });
@@ -155,7 +155,7 @@ async function relaunch() {
 
 async function main() {
   if (!args.has('--no-build')) build();
-  if (!fs.existsSync(BUILT)) fail(`no existe ${BUILT} (¿build sin la feature qdrant?)`);
+  if (!fs.existsSync(BUILT)) fail(`no existe ${BUILT} (¿fallo el build del target ultron-memory?)`);
   await stopEverything();
   deploy();
   verifyVersion();

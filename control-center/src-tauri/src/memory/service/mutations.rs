@@ -13,7 +13,7 @@ use super::super::model::{
 use super::super::MemoryError;
 use super::super::{redaction, sqlite_store as store};
 use super::{
-    raised_sensitivity, redact_item_in_place, redact_tags, sync_index, BackfillDeprecationsResult,
+    raised_sensitivity, redact_item_in_place, redact_tags, BackfillDeprecationsResult,
     MemoryService, MemoryStats,
 };
 
@@ -39,7 +39,6 @@ impl MemoryService {
         let ev = MemoryEvent::new(EventType::Imported, Some(item.id.clone()), Actor::Migration)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
         store::insert_item_with_event(&conn, &item, &ev)?;
-        sync_index(&item); // W4: index active imports (bulk ETL still runs reindex_all)
         Ok(())
     }
 
@@ -109,8 +108,7 @@ impl MemoryService {
             item.confidence = c.clamp(0.0, 1.0);
         }
         // Write-path secret guard (H2 / review P1): an edit can introduce a
-        // credential, and W4 now indexes edited items into Qdrant — redact +
-        // escalate sensitivity BEFORE persisting/indexing.
+        // credential — redact + escalate sensitivity BEFORE persisting.
         let mut secret = redaction::redact_in_place(&mut item.title);
         secret |= redaction::redact_in_place(&mut item.summary);
         secret |= redaction::redact_in_place(&mut item.content);
@@ -123,7 +121,6 @@ impl MemoryService {
             .with_before(before)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
         store::insert_item_with_event(&conn, &item, &ev)?;
-        sync_index(&item); // W4: re-embed/refresh the dense index after an edit
         Ok(item)
     }
 
@@ -136,11 +133,10 @@ impl MemoryService {
     ) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
         let item = Self::set_status_on(&conn, id, status, actor, reason)?;
-        sync_index(&item); // W4: Active -> (re)index ; non-active -> remove from index
         Ok(item)
     }
 
-    /// [`Self::set_status`] sobre una conexión dada y sin tocar Qdrant. El
+    /// [`Self::set_status`] sobre una conexión dada. El
     /// item, la entrada del ledger de deprecaciones y el evento van en una sola
     /// transacción: si el evento no se puede registrar, el status no cambia.
     pub(crate) fn set_status_on(
@@ -281,7 +277,6 @@ impl MemoryService {
             .with_before(before)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
         store::insert_item_with_event(&conn, &item, &ev)?;
-        sync_index(&item); // W4: refresh the dense index payload (scope/type) after relabel
         Ok(item)
     }
 
@@ -293,13 +288,11 @@ impl MemoryService {
         actor: Actor,
     ) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
-        let (new_item, old) = Self::supersede_on(&conn, old_id, new_item, actor)?;
-        sync_index(&new_item); // W4: index the new active item
-        sync_index(&old); // W4: drop the superseded (now deprecated) item from the index
+        let (new_item, _old) = Self::supersede_on(&conn, old_id, new_item, actor)?;
         Ok(new_item)
     }
 
-    /// [`Self::supersede`] sobre una conexión dada y sin tocar Qdrant. Devuelve
+    /// [`Self::supersede`] sobre una conexión dada. Devuelve
     /// `(nuevo, viejo)`. Los dos items, la entrada del ledger de deprecaciones y
     /// los dos eventos van en una sola transacción.
     pub(crate) fn supersede_on(
@@ -366,17 +359,13 @@ impl MemoryService {
     /// Order: get_item (NotFound if absent) -> snapshot `before` for audit ->
     /// `store::delete_item` + a `MemoryEvent` (`Updated` + reason `forgotten`,
     /// `before` = item_json — the only surviving record of the item) in ONE
-    /// transaction -> `qdrant_index::remove_item` (best-effort, keeps reconcile
-    /// clean). Without the event the row is not deleted.
+    /// transaction. Without the event the row is not deleted.
     pub fn forget(id: &str, actor: Actor, reason: Option<String>) -> Result<(), MemoryError> {
         let conn = store::open_conn()?;
-        Self::forget_on(&conn, id, actor, reason)?;
-        // Best-effort: drop the derived dense point so recall can't resurface it.
-        let _ = super::super::qdrant_index::remove_item(id);
-        Ok(())
+        Self::forget_on(&conn, id, actor, reason)
     }
 
-    /// [`Self::forget`] sobre una conexión dada y sin tocar Qdrant.
+    /// [`Self::forget`] sobre una conexión dada.
     pub(crate) fn forget_on(
         conn: &rusqlite::Connection,
         id: &str,

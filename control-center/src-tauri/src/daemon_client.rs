@@ -1,58 +1,24 @@
 //! daemon_client.rs — cliente del daemon `ultron-memory serve`.
 //!
-//! Por qué existe: hasta 2026-08-15 cada proceso que necesitaba semántica
-//! cargaba su PROPIA copia de E5-large. Medido en esta máquina con la app
-//! abierta y el daemon vivo: `control-center.exe` 1.523 MB + `ultron-memory
-//! serve` 1.223 MB, y encima cada `recall` por CLI picaba en 3,2 GB (E5 +
-//! cross-encoder) porque también se los cargaba él. Tres copias del mismo
-//! modelo para responder a la misma pregunta.
+//! El daemon habla TCP por loopback (una línea JSON por petición, token
+//! compartido en `~/.ultron/run/orchestrate.json`). Este módulo deja que la GUI
+//! y los one-shot le pregunten a él (`orchestrate`, `recall`). Si no contesta,
+//! el llamante hace lo de siempre en su propio proceso: la memoria nunca
+//! depende de que el daemon esté vivo.
 //!
-//! El daemon ya tiene los modelos calientes y habla TCP por loopback (una línea
-//! JSON por petición, token compartido en `~/.ultron/run/orchestrate.json`).
-//! Este módulo deja que la GUI y los one-shot le pregunten a él. Si no
-//! contesta, el llamante hace lo de siempre en su propio proceso: la memoria
-//! nunca depende de que el daemon esté vivo, solo gasta menos cuando lo está.
+//! Nació (2026-08-15) para que no hubiera una copia de los modelos de
+//! embeddings por proceso; desde el 2026-11-14, sin ruta densa, ya no hay
+//! modelos que compartir y solo quedan las dos peticiones de arriba.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::Value;
 
 /// Espera máxima de conexión. Loopback: si no contesta ya, no está.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(300);
-
-/// Espera del `embed` remoto: el daemon ya tiene E5 caliente, pero puede estar
-/// sirviendo otra petición o recargando el modelo tras el release por
-/// inactividad (`ULTRON_MODEL_IDLE_MIN`). Agotarlo cae al camino local, que
-/// carga OTRA copia de E5 (~1,5 GB) en este proceso.
-/// 8 s -> 60 s (2026-09-27): desde que el daemon encola los forward pass en un
-/// turno FIFO en vez de responder "busy", esperar la cola es siempre más barato
-/// que cargar el modelo aquí; 60 s solo se agotan con el daemon colgado.
-const EMBED_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// Dimensión del espacio E5-large. Una respuesta con otra longitud no es un
-/// vector de este índice: se descarta y se recalcula en local.
-const EMBED_DIM: usize = 1024;
-
-/// ¿Estamos DENTRO del proceso daemon? Lo marca `serve` al arrancar.
-static IN_DAEMON: AtomicBool = AtomicBool::new(false);
-
-/// Marca este proceso como el daemon. La llama `serve` una vez al arrancar,
-/// ANTES de atender peticiones: sin ella el daemon se pediría los embeddings a
-/// sí mismo por TCP (deadlock del hilo que atiende, o round trip inútil).
-pub fn mark_in_daemon() {
-    IN_DAEMON.store(true, Ordering::Relaxed);
-}
-
-/// ¿Este proceso es el daemon? Los caminos que prefieren el daemon lo consultan
-/// para no llamarse a sí mismos.
-#[must_use]
-pub fn is_in_daemon() -> bool {
-    IN_DAEMON.load(Ordering::Relaxed)
-}
 
 fn lockfile_path() -> PathBuf {
     dirs::home_dir()
@@ -137,7 +103,7 @@ pub fn orchestrate(prompt: &str, project: Option<&str>, timeout: Duration) -> Op
     )
 }
 
-/// Recall híbrido por el daemon. `cross` = búsqueda en todo el cerebro.
+/// Recall FTS5 por el daemon. `cross` = búsqueda en todo el cerebro.
 /// `diagnostic` = recall de medición: el daemon no registra el evento Retrieved
 /// ni toca `access_count`/`last_accessed_at` (un daemon anterior al 2026-10-23
 /// ignora el campo; se actualiza con el mismo binario al redesplegar).
@@ -146,7 +112,6 @@ pub fn recall(
     limit: u32,
     project: Option<&str>,
     cross: bool,
-    rerank: bool,
     diagnostic: bool,
     timeout: Duration,
 ) -> Option<Value> {
@@ -157,60 +122,10 @@ pub fn recall(
             "project": project,
             "top": limit,
             "cross": cross,
-            "rerank": rerank,
             "diagnostic": diagnostic,
         }),
         timeout,
     )
-}
-
-/// Vector E5 de `text` (lado QUERY, prefijo `query:`) pidiéndoselo al daemon
-/// cuando lo hay, en vez de cargar E5 en este proceso.
-///
-/// Contrato con el daemon (`serve.rs`):
-///   petición  `{"cmd":"embed","text":"..."}`  (token y transporte los pone
-///             [`request`])
-///   respuesta `{"vector":[f32; 1024]}`
-///
-/// Orden de resolución:
-///   1. `is_in_daemon()` → camino local de siempre (el daemon YA tiene E5; no se
-///      llama a sí mismo).
-///   2. daemon vivo y contesta un vector de 1024 dimensiones → ese vector.
-///   3. cualquier otra cosa (sin daemon, timeout, respuesta malformada) → camino
-///      local. Un daemon caído nunca convierte esto en un fallo.
-///
-/// Motivo (medido 2026-09-06): `ultron-memory inbox drain --auto` y `capture`
-/// cargaban E5 (~1,5 GB, ~3 s) en el one-shot para embeber UNA query, con el
-/// daemon vivo y el modelo caliente al lado.
-pub fn embed_prefer_daemon(text: &str) -> Result<Vec<f32>, String> {
-    if is_in_daemon() {
-        return crate::qdrant::embed_e5(text, true);
-    }
-    if let Some(vector) = remote_embed(text) {
-        return Ok(vector);
-    }
-    crate::qdrant::embed_e5(text, true)
-}
-
-/// Parseo del `{"vector":[...]}` del daemon. `None` si falta, no es un array de
-/// números, o no tiene la dimensión del índice.
-fn parse_embedding(resp: &Value) -> Option<Vec<f32>> {
-    let raw = resp.get("vector")?.as_array()?;
-    if raw.len() != EMBED_DIM {
-        return None;
-    }
-    raw.iter()
-        .map(|v| v.as_f64().map(|f| f as f32))
-        .collect::<Option<Vec<f32>>>()
-}
-
-/// Embedding por el daemon. `None` = no hay daemon, no contestó, o contestó algo
-/// que no es un vector de este índice. Nunca carga E5 en este proceso: lo usan
-/// los llamantes de la GUI que prefieren no saber antes que cargar ~1,5 GB
-/// (p. ej. la sonda de `memory_health`).
-pub fn remote_embed(text: &str) -> Option<Vec<f32>> {
-    let resp = request("embed", serde_json::json!({ "text": text }), EMBED_TIMEOUT)?;
-    parse_embedding(&resp)
 }
 
 #[cfg(test)]
@@ -250,41 +165,5 @@ mod tests {
         // No se afirma Some/None (en esta maquina puede haber daemon vivo):
         // lo que se prueba es que la llamada termina sin panico ni error.
         let _ = resp;
-    }
-
-    #[test]
-    fn acepta_solo_vectores_de_la_dimension_del_indice() {
-        let ok = serde_json::json!({ "vector": vec![0.5_f64; EMBED_DIM] });
-        let parsed = parse_embedding(&ok).expect("un vector de 1024 debe parsearse");
-        assert_eq!(parsed.len(), EMBED_DIM);
-        assert!((parsed[0] - 0.5).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn descarta_respuestas_que_no_son_un_vector_del_indice() {
-        // Caso negativo: si colaran, el k-NN buscaria con basura o con una
-        // dimension que Qdrant rechaza, en vez de caer al camino local.
-        assert_eq!(parse_embedding(&serde_json::json!({})), None);
-        assert_eq!(
-            parse_embedding(&serde_json::json!({ "vector": "no" })),
-            None
-        );
-        assert_eq!(
-            parse_embedding(&serde_json::json!({ "vector": vec![0.0_f64; 8] })),
-            None,
-            "dimension distinta de 1024"
-        );
-        let con_texto = serde_json::json!({ "vector": ["a", "b"] });
-        assert_eq!(parse_embedding(&con_texto), None);
-    }
-
-    #[test]
-    fn el_flag_de_daemon_arranca_apagado_y_se_marca() {
-        // Unico test que toca el flag global: sin marcar, un one-shot pide el
-        // embedding al daemon; marcado, el daemon usa su propio E5 y no se
-        // llama a si mismo por TCP.
-        assert!(!is_in_daemon(), "por defecto NO somos el daemon");
-        mark_in_daemon();
-        assert!(is_in_daemon());
     }
 }

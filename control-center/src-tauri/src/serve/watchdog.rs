@@ -1,9 +1,7 @@
-//! Hilos de fondo del daemon: el barrido que suelta los modelos por inactividad
-//! y el guard de huérfano que mata al proceso si se configuró una ventana.
-//!
-//! Son dos relojes distintos y con propósitos distintos: el primero cuida la RAM
-//! (los modelos son ~1,5 GB cada uno) y el segundo, la existencia del proceso.
-//! Por defecto solo el primero hace algo: el daemon es residente.
+//! Hilo de fondo del daemon: el guard de huérfano que mata al proceso si se
+//! configuró una ventana de inactividad. Por defecto no hace nada: el daemon es
+//! residente. (El barrido que soltaba los modelos de embeddings por
+//! inactividad se retiró el 2026-11-14 con la ruta densa.)
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
@@ -19,9 +17,8 @@ use super::lockfile::{now_ms, remove_lockfile_if_owned};
 /// tres prompts de una misma sesión entraron SIN memoria el 2026-09-10
 /// (hook-errors.jsonl 19:08, 19:20 y 21:05 UTC; el lockfile se reclamó de nuevo
 /// a las 21:05:00, es decir, el proceso ya no estaba). El motivo original de
-/// salir era la RAM y ya no aplica: los modelos se liberan por su cuenta
-/// (`ULTRON_MODEL_IDLE_MIN`, ver `qdrant::release_idle_models`), así que el
-/// proceso en reposo cuesta ~40 MB medidos. Quien prefiera el comportamiento
+/// salir era la RAM de los modelos de embeddings, que ya no existen: el
+/// proceso en reposo cuesta decenas de MB. Quien prefiera el comportamiento
 /// viejo pone minutos en la variable.
 ///
 /// Esto NO afecta ni a la salida explícita por `shutdown` ni a la retirada
@@ -47,22 +44,6 @@ fn daemon_idle_ms_from(raw: Option<&str>) -> i64 {
 /// cambio de valor exige reiniciar el daemon.
 fn daemon_idle_ms() -> i64 {
     daemon_idle_ms_from(std::env::var("ULTRON_DAEMON_IDLE_MIN").ok().as_deref())
-}
-
-/// Barrido de inactividad de los modelos (2026-08-15): E5 son ~1,5 GB
-/// residentes y el cross-encoder otros ~1,5 GB. El daemon vive toda la sesion,
-/// asi que sin esto la RAM se queda tomada aunque no se consulte en horas. Cada
-/// minuto se comprueba el reloj de uso y se sueltan los modelos que hayan pasado
-/// su ventana (`ULTRON_MODEL_IDLE_MIN`, 0 = nunca soltar). La siguiente peticion
-/// los recarga: se cambia RAM por unos segundos de warmup.
-pub(super) fn spawn_model_release_sweep() {
-    std::thread::spawn(|| loop {
-        std::thread::sleep(Duration::from_secs(60));
-        let soltados = crate::qdrant::release_idle_models();
-        if !soltados.is_empty() {
-            eprintln!("[serve] modelos liberados por inactividad: {soltados:?}");
-        }
-    });
 }
 
 /// Watchdog de inactividad del PROCESO (guard de huérfano). El bucle sigue

@@ -9,8 +9,11 @@
  * uso (exit 3), como antes con la cuota. `--no-relay` hace un unico intento
  * real con el primer motor disponible de la cadena.
  *
- * Una excepcion dentro de un intento (git) se registra como engine-fail y el
- * relevo sigue; meta.json se reescribe tras cada intento. Una ruptura del
+ * Una excepcion dentro de un intento (git) se registra como engine-fail; si salto
+ * antes del motor, el relevo sigue. Si salto despues, el worktree se conserva
+ * sin commit (`review` en meta.json) y, con ficheros cambiados o sin poder
+ * contarlos, el relevo se corta: el trabajo se revisa a mano antes de pagar otro
+ * motor. meta.json se reescribe tras cada intento. Una ruptura del
  * aislamiento (motivo `isolation`) corta el relevo: el repo necesita revision
  * humana antes de lanzar otro motor encima; una mera sospecha no (isolation.mjs).
  * Un check que cambia lo que valida (`tree-changed`) tambien lo corta: el defecto
@@ -81,6 +84,12 @@ export function planRun(opts) {
   };
 }
 
+/** Sesion de ULTRON Sessions que lanza la delegacion (su arbol de Agentes la pinta); null fuera de una. */
+export function sessionOf(env = process.env) {
+  const id = env.ULTRON_SESION_ID;
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : null;
+}
+
 const statusOf = (run, id) => engineStatus(run.config, id, { tier: run.tier, model: run.model, force: run.force });
 
 /** Un motor forzado y no disponible es un error de uso: no se crea nada. */
@@ -91,12 +100,19 @@ async function assertForced(run) {
   throw new UsageError(`motor no disponible: ${st.reason} (${st.detail})`);
 }
 
+/** Trabajo del motor sin recoger (excepcion tras el motor) con cambios o sin poder contarlos. */
+const holdsUncollectedWork = (a) => Boolean(a.review) && a.review.filesChanged !== 0;
+
 function shouldRelay(run, a) {
   if (a.outcome === 'ok' || !run.relay || a.reason === ISOLATION_REASON || a.reason === TREE_CHANGED_REASON) return false;
+  if (holdsUncollectedWork(a)) return false;
   return a.outcome !== 'check-fail' || run.config.relayOnCheckFail !== false;
 }
 
-/** Una excepcion en un intento no corta el relevo: cuenta como engine-fail. */
+/**
+ * Una excepcion previa al motor no corta el relevo: cuenta como engine-fail.
+ * Las posteriores las resuelve runAttempt (worktree conservado, attempt.mjs).
+ */
 async function attemptSafely(run, st, n, first) {
   try {
     return await runAttempt(run, st, n, first);
@@ -118,6 +134,8 @@ async function walkChain(run, forced) {
       continue;
     }
     const first = !attempts.some((x) => x.outcome !== 'skipped');
+    // El intento en marcha: sin esto meta.json no dice que motor trabaja hasta que acaba.
+    writeMeta(run, attempts, null, { attempt: n, engine: st.id, model: st.model || null, startedAt: new Date().toISOString() });
     const a = await attemptSafely(run, st, n, first);
     attempts.push(a);
     recordAttempt(run, a);
@@ -142,6 +160,7 @@ function metaAttempt(a) {
     branch: a.branch, wt: a.wt, kept: a.kept, sha: a.sha || null,
     isolation: a.isolation || null, suspect: a.suspect || [],
     outside: (a.check && a.check.outside) || [],
+    review: a.review || null,
   };
 }
 
@@ -151,13 +170,14 @@ function dirtyEntries(repo) {
   return parsePorcelainZ(out).length;
 }
 
-function writeMeta(run, attempts, code = null) {
+function writeMeta(run, attempts, code = null, current = null) {
   const winner = attempts.find((a) => a.outcome === 'ok') || null;
   const lastKept = [...attempts].reverse().find((a) => a.kept) || null;
   const meta = {
     id: run.id, repo: run.repo, base: run.base, title: run.title, tier: run.tier, engine: run.engine,
     baseSha: run.baseSha, dirtyAtStart: run.dirtyAtStart,
     links: run.links, startedAt: run.startedAt, configSource: run.configSource,
+    session: run.session, timeoutS: run.timeoutS, current,
     attempts: attempts.map(metaAttempt),
     winner: winner ? winner.branch : null,
     // El commit cuyo arbol paso el check: `merge` exige que la rama siga en el.
@@ -178,6 +198,7 @@ export async function cmdRun(opts) {
   }
   const forced = run.auto ? null : await assertForced(run);
   run.startedAt = new Date().toISOString();
+  run.session = sessionOf();
   run.baseSha = git(run.repo, ['rev-parse', `${run.base}^{commit}`]);
   run.dirtyAtStart = dirtyEntries(run.repo);
   mkdirSync(run.dir, { recursive: true });

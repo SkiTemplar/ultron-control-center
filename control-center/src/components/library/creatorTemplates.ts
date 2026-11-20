@@ -34,12 +34,38 @@ export type SkillTemplate = {
   body: string;
 };
 
+/**
+ * Models accepted in an agent frontmatter: exact 5.5 IDs only (an alias can
+ * resolve to an older version). Mirrors `library::types::AGENT_MODEL_IDS`.
+ */
+export type AgentModelId =
+  | "claude-opus-5-5"
+  | "claude-sonnet-5-5"
+  | "claude-haiku-5-5";
+
+export const AGENT_MODELS: readonly { id: AgentModelId; label: string }[] = [
+  { id: "claude-opus-5-5", label: "Opus 5.5" },
+  { id: "claude-sonnet-5-5", label: "Sonnet 5.5" },
+  { id: "claude-haiku-5-5", label: "Haiku 5.5" },
+] as const;
+
+/** Range and default of `maxTurns`; mirrors `library::types`. */
+export const MIN_MAX_TURNS = 1;
+export const MAX_MAX_TURNS = 500;
+export const DEFAULT_MAX_TURNS = 200;
+
+export function isValidMaxTurns(n: number): boolean {
+  return Number.isInteger(n) && n >= MIN_MAX_TURNS && n <= MAX_MAX_TURNS;
+}
+
 export type AgentTemplate = {
   id: AgentTemplateId;
   label: string;
   hint: string;
   tools: string[];
-  model: "" | "haiku" | "sonnet" | "opus";
+  model: AgentModelId;
+  /** Turn cap by role: 200 implementer, 120 debugging, 100 review, 80 design, 60 research. */
+  maxTurns: number;
   body: string;
 };
 
@@ -354,7 +380,8 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     label: "Vacío",
     hint: "Esqueleto mínimo de subagente.",
     tools: ["Read", "Grep", "Glob"],
-    model: "",
+    model: "claude-opus-5-5",
+    maxTurns: 200,
     body: EMPTY_AGENT,
   },
   {
@@ -362,7 +389,8 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     label: "Revisor",
     hint: "Revisión de código ordenada por severidad y con arreglos.",
     tools: ["Read", "Grep", "Glob", "Bash"],
-    model: "sonnet",
+    model: "claude-opus-5-5",
+    maxTurns: 100,
     body: REVIEWER_AGENT,
   },
   {
@@ -370,7 +398,8 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     label: "Investigador",
     hint: "Descompone preguntas y devuelve respuestas con fuentes.",
     tools: ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
-    model: "sonnet",
+    model: "claude-sonnet-5-5",
+    maxTurns: 60,
     body: RESEARCHER_AGENT,
   },
   {
@@ -378,7 +407,8 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     label: "Implementador",
     hint: "Ejecuta una tarea bien acotada, con tests.",
     tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
-    model: "sonnet",
+    model: "claude-opus-5-5",
+    maxTurns: 200,
     body: IMPLEMENTER_AGENT,
   },
   {
@@ -386,7 +416,8 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     label: "Depurador",
     hint: "Acota fallos y propone arreglos mínimos.",
     tools: ["Read", "Grep", "Glob", "Bash"],
-    model: "sonnet",
+    model: "claude-opus-5-5",
+    maxTurns: 120,
     body: DEBUGGER_AGENT,
   },
   {
@@ -394,7 +425,8 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     label: "Coordinador",
     hint: "Orquesta a otros subagentes.",
     tools: ["Read", "Grep", "Glob"],
-    model: "opus",
+    model: "claude-opus-5-5",
+    maxTurns: 80,
     body: COORDINATOR_AGENT,
   },
 ];

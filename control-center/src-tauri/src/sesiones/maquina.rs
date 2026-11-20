@@ -196,6 +196,12 @@ pub struct EstadoSesion {
     /// Último `turnEnd` real del puente, también el atrasado o ajeno que se
     /// ignora: prueba de que el puente vive y la red de seguridad no pausa.
     pub ultimo_turn_end_puente: Option<Ms>,
+    /// Turno que `turnEnd perdido` cerró con la sesión en idle (`turn_id` e
+    /// inicio): la pantalla en el prompt y 10 s de silencio no prueban que
+    /// acabara (el modelo tarda en dar el primer token). Si el puente da
+    /// después actividad de ese turno, vuelve a working en vez de quedarse en
+    /// idle hasta su `turnEnd` real.
+    pub perdido: Option<(String, Ms)>,
 }
 
 impl EstadoSesion {
@@ -240,6 +246,7 @@ impl EstadoSesion {
             prompt_tras_cierre: false,
             arranque_desde: ahora,
             ultimo_turn_end_puente: None,
+            perdido: None,
         }
     }
 
@@ -391,6 +398,8 @@ fn aplicar_tx(
             nombre,
             timeout_ms,
         } => {
+            // Una herramienta del hilo principal solo corre dentro de un turno.
+            tiempo::reabrir_perdido(n, None, ahora, ef);
             let h = HerramientaAbierta {
                 nombre: nombre.clone(),
                 desde: ahora,
@@ -402,6 +411,10 @@ fn aplicar_tx(
             n.herramientas.remove(tool_use_id);
         }
         Senal::Actividad { agent_id: None } => n.envio_desde = None,
+        Senal::ActividadTurno { turn_id } => {
+            n.envio_desde = None;
+            tiempo::reabrir_perdido(n, Some(turn_id), ahora, ef);
+        }
         Senal::TxTurnDuration => fin_por_transcript(n, false, ahora, t, ef),
         Senal::TxInterrumpido => fin_por_transcript(n, true, ahora, t, ef),
         Senal::TxSalidaLocal | Senal::TxSalidaBash => salida_local(n, t, ef),
@@ -459,6 +472,8 @@ fn es_actividad(s: &Senal) -> bool {
 pub(super) fn a_working(n: &mut EstadoSesion, origen: Origen, turn_id: Option<String>, ahora: Ms) {
     n.status = SessionStatus::Working;
     n.waiting = None;
+    // Con otro turno en marcha, la actividad del perdido ya no puede llegar.
+    n.perdido = None;
     // El turno empieza ahora: el silencio previo en idle no cuenta para
     // `noEvents`.
     n.ultima_actividad = ahora;

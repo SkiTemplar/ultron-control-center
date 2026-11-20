@@ -38,6 +38,7 @@ mod diagnostics_native;
 mod env_keys;
 mod env_path; // PATH del proceso completado con el del registro (app lanzada desde el Explorador)
 mod features;
+mod file_lock; // lock de fichero entre procesos (kanban.json, projects.json)
 #[cfg(feature = "finance")]
 // Módulo local opcional, ausente en los worktrees del repositorio público.
 #[rustfmt::skip]
@@ -83,9 +84,8 @@ mod tfg_heuristics_densidad;
 // El RunBatch del kanban se retiró el 2026-10-17 y el terminal embebido
 // (pty_spawn/pty_kill/pty_list) en 2026-07; NO borrar este módulo.
 mod pty;
-pub mod qdrant;
 mod rules;
-pub mod serve; // ultron-memory serve — persistent E5-warm orchestrator daemon
+pub mod serve; // ultron-memory serve — daemon persistente de memoria y orquestación
                // Ventana «ULTRON Sesiones»: PTY de claude, seguidor de transcripts, puente HTTP
                // loopback del mod ultron-puente, adjuntos y Codex (docs/sesiones/CONTRATO.md).
 mod sesiones;
@@ -433,27 +433,13 @@ pub fn run() {
             #[cfg(all(feature = "mcp-bridge", debug_assertions))]
             mcp_bridge::grant_capability(app)?;
 
-            // Barrido de modelos inactivos (2026-08-15). La GUI tambien carga
-            // E5 en su propio proceso cuando ejecuta un recall o el routing, y
-            // se quedaba con ~1,5 GB tomados para el resto de la sesion (medido
-            // con la app abierta y sin usar: 1.523 MB). Cada minuto se sueltan
-            // los modelos que hayan pasado su ventana de inactividad; la
-            // siguiente consulta los recarga.
-            std::thread::spawn(|| loop {
-                std::thread::sleep(std::time::Duration::from_secs(60));
-                let soltados = crate::qdrant::release_idle_models();
-                if !soltados.is_empty() {
-                    tracing::info!(modelos = ?soltados, "modelos liberados por inactividad");
-                }
-            });
-
             // Migraciones de datos, FUERA del hilo que crea la ventana
             // (2026-09-22). El comentario de abajo decía «best-effort: a
             // failure must never block startup» — correcto sobre el error y
             // mudo sobre el TIEMPO, que era el problema: eran el último punto
             // pesado que quedaba síncrono dentro de `.setup()`, mientras todo
-            // lo demás (barrido de modelos, Qdrant, voz, warm del catálogo)
-            // ya corría en un hilo.
+            // lo demás (voz, comprobación de actualizaciones) ya corría en un
+            // hilo.
             //
             // POR QUÉ SE PUEDE MOVER, y qué se ha comprobado antes de
             // hacerlo: ninguna de las dos escribe algo que otro tenga que
@@ -561,21 +547,6 @@ pub fn run() {
             // quota:updated / quota:critical / quota:reset events so the
             // frontend can update the Usage quota card and Sidebar dot.
 
-            // MEMORY CORE D2 — Qdrant auto-launch.
-            // Probes http://127.0.0.1:6333/healthz; if Qdrant is not running,
-            // spawns the configured Qdrant binary detached (CREATE_NO_WINDOW).
-            // Never panics — a missing exe is logged and boot continues.
-            std::thread::spawn(|| {
-                qdrant_auto_launch();
-            });
-
-            // Auto-warm the agent/skill catalog off the startup thread so skills
-            // compete in the semantic router without a manual reindex. Daemon
-            // first (the E5 probe cost the GUI 1.522 MB on 2026-08-15), local
-            // fallback; skipped entirely with ULTRON_DENSE=0. Best-effort: see
-            // memory/catalog_warm.rs.
-            tauri::async_runtime::spawn_blocking(crate::memory::catalog_warm::warm_at_startup);
-
             // v15.4.2 — fire a startup update check. We spawn it on a
             // background thread + sleep 6s so the webview has time to
             // paint and the event listener is wired before we emit.
@@ -654,115 +625,6 @@ pub fn run() {
                 sesiones::remoto::cerrar();
             }
         });
-}
-
-// ---------------------------------------------------------------------------
-// Qdrant auto-launch (MEMORY CORE D2)
-// ---------------------------------------------------------------------------
-
-/// Probe Qdrant at `http://127.0.0.1:6333/healthz`.  Returns `true` when
-/// Qdrant responds with HTTP 2xx within the given timeout.
-fn qdrant_is_running() -> bool {
-    let Ok(client) = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
-        .build()
-    else {
-        return false;
-    };
-    client
-        .get("http://127.0.0.1:6333/healthz")
-        .send()
-        .map(|r| r.status().is_success())
-        .unwrap_or(false)
-}
-
-/// Attempt to spawn the bundled Qdrant binary detached with no console
-/// window.  The executable path is read from `ULTRON_QDRANT_EXE` (its working
-/// dir from `ULTRON_QDRANT_DIR`), falling back to a portable location under
-/// `%USERPROFILE%\.ultron\qdrant-native\`.  Returns the child handle on
-/// success, or logs and returns `None`.
-#[cfg(target_os = "windows")]
-fn spawn_qdrant_exe() -> Option<std::process::Child> {
-    use std::os::windows::process::CommandExt;
-
-    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
-    let qdrant_exe = std::env::var("ULTRON_QDRANT_EXE")
-        .unwrap_or_else(|_| format!(r"{home}\.ultron\qdrant-native\qdrant.exe"));
-    let qdrant_dir = std::env::var("ULTRON_QDRANT_DIR")
-        .unwrap_or_else(|_| format!(r"{home}\.ultron\qdrant-native"));
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    if !std::path::Path::new(&qdrant_exe).exists() {
-        tracing::warn!(
-            path = %qdrant_exe,
-            "qdrant-autolaunch: exe not found — start Qdrant manually or set ULTRON_QDRANT_EXE"
-        );
-        return None;
-    }
-
-    // Qdrant defaults to binding 0.0.0.0 when it finds no config, and it looks
-    // for `config/config.yaml` relative to the working directory — not the
-    // `config.yaml` that sits next to the binary. Spawning with no arguments
-    // therefore published the whole vector store (ultron_memory included, no
-    // API key) on every network interface. Found live on 2026-09-21: the
-    // collections answered from the LAN address on a public-profile network.
-    //
-    // Two independent guards, so neither one alone is load-bearing:
-    //   1. QDRANT__SERVICE__HOST pins the bind address even with no config file
-    //      at all (Qdrant maps QDRANT__<SECTION>__<KEY> onto its config tree).
-    //   2. --config-path points at the real config.yaml when one exists.
-    let mut cmd = std::process::Command::new(&qdrant_exe);
-    cmd.current_dir(&qdrant_dir)
-        .env("QDRANT__SERVICE__HOST", "127.0.0.1")
-        .creation_flags(CREATE_NO_WINDOW);
-
-    let config_path = std::path::Path::new(&qdrant_dir).join("config.yaml");
-    if config_path.exists() {
-        cmd.arg("--config-path").arg(&config_path);
-    }
-
-    match cmd.spawn() {
-        Ok(child) => {
-            tracing::info!(pid = child.id(), "qdrant-autolaunch: spawned");
-            Some(child)
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "qdrant-autolaunch: spawn failed");
-            None
-        }
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn spawn_qdrant_exe() -> Option<std::process::Child> {
-    tracing::info!("qdrant-autolaunch: non-Windows platform — skipping");
-    None
-}
-
-/// Background task: probe Qdrant, launch if down, re-probe to confirm.
-fn qdrant_auto_launch() {
-    if !crate::qdrant::dense_enabled() {
-        tracing::info!("qdrant-autolaunch: skipped — dense stack disabled (ULTRON_DENSE=0)");
-        return;
-    }
-    if qdrant_is_running() {
-        tracing::debug!("qdrant-autolaunch: already running — no action needed");
-        return;
-    }
-
-    tracing::info!("qdrant-autolaunch: not running — attempting launch");
-    let _child = spawn_qdrant_exe();
-
-    // Give Qdrant time to bind the port before re-probing.
-    std::thread::sleep(std::time::Duration::from_secs(4));
-
-    if qdrant_is_running() {
-        tracing::info!("qdrant-autolaunch: reachable at :6333");
-    } else {
-        tracing::warn!(
-            "qdrant-autolaunch: still unreachable after launch — semantic recall unavailable"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------

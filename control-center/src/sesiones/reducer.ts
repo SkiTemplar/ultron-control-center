@@ -256,6 +256,16 @@ export function capEngines(list: EngineTask[]): EngineTask[] {
   return list.filter((t) => keep.has(t));
 }
 
+/**
+ * Añade un turno cerrado. Un turno dado por perdido (`lost`) que seguía vivo
+ * se reabre y vuelve a cerrarse con su `turnEnd` real: el segundo cierre
+ * sustituye al primero en vez de pintar dos pies del mismo turno.
+ */
+export function appendTurn(turns: readonly TurnPayload[], turn: TurnPayload): TurnPayload[] {
+  const rest = turn.turnId ? turns.filter((t) => t.turnId !== turn.turnId) : turns;
+  return [...rest, turn].slice(-MAX_TURNS);
+}
+
 /** Quita del store lo de las sesiones que ya no están en la lista (salidas y cerradas). */
 function purgeGone(state: State, sessions: SessionInfo[]): State {
   const alive = new Set(sessions.map((s) => s.id));
@@ -392,7 +402,7 @@ function sessionReducer(state: State, action: Action): State | null {
     case "queue":
       return patchSession(state, action.id, (s) => applyQueue(s, action.items));
     case "turn":
-      return patchSession(state, action.payload.id, (s) => clearMainTools({ ...s, turns: [...s.turns, action.payload].slice(-MAX_TURNS) }));
+      return patchSession(state, action.payload.id, (s) => clearMainTools({ ...s, turns: appendTurn(s.turns, action.payload) }));
     case "note":
       return patchSession(state, action.id, (s) => ({ ...s, notes: addNoteTo(s.notes, action.note) }));
     case "commands":

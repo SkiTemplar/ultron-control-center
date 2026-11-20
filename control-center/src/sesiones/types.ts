@@ -4,6 +4,7 @@
 // cambia con él.
 
 import type { AgentNode } from "./agent-node";
+export type { DelegationAttempt, DelegationRun } from "./delegation-run";
 import type { WorkflowEvent } from "./workflows";
 
 export type SessionId = string;
@@ -781,7 +782,8 @@ export interface SessionUsageInfo {
   cost?: Record<string, unknown>;
 }
 
-export type TurnEndReason = "answer" | "aborted" | "refusal" | "error";
+/** `lost`: la máquina dio el turno por perdido (sin `turnEnd` del puente); si seguía vivo, su cierre real lo sustituye. */
+export type TurnEndReason = "answer" | "aborted" | "refusal" | "error" | "lost";
 
 /** Payload de `sesiones://turn` (§7.2). */
 export interface TurnPayload {

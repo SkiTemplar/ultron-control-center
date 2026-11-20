@@ -17,7 +17,7 @@ use rusqlite::Connection;
 use super::super::model::{now_millis, Actor, EventType, MemoryEvent, MemoryItem, Status};
 use super::super::sqlite_store as store;
 use super::super::MemoryError;
-use super::{redact_item_in_place, sync_index, MemoryService};
+use super::{redact_item_in_place, MemoryService};
 
 /// Resultado de [`MemoryService::pii_backfill`].
 #[derive(Debug, Clone, serde::Serialize)]
@@ -36,16 +36,12 @@ impl MemoryService {
     /// marca Secret. Ver el módulo.
     pub fn pii_backfill(dry_run: bool, actor: Actor) -> Result<PiiBackfillResult, MemoryError> {
         let conn = store::open_conn()?;
-        let (result, touched) = Self::pii_backfill_on(&conn, dry_run, actor)?;
-        for item in &touched {
-            sync_index(item);
-        }
+        let (result, _touched) = Self::pii_backfill_on(&conn, dry_run, actor)?;
         Ok(result)
     }
 
-    /// [`Self::pii_backfill`] sobre una conexión dada y sin tocar Qdrant.
-    /// Devuelve también los items escritos, para que el llamante sincronice el
-    /// índice denso tras el commit.
+    /// [`Self::pii_backfill`] sobre una conexión dada.
+    /// Devuelve también los items escritos (los tests comprueban cuáles).
     pub(crate) fn pii_backfill_on(
         conn: &Connection,
         dry_run: bool,

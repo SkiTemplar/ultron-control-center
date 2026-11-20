@@ -235,8 +235,8 @@ hosting service to maintain.
 > versión. La distinción de esta nota (**v2.7.1** el producto Tauri frente al
 > linaje `v15.x` del *core*) ya **no aplica**: desde `ebe751f` el producto
 > Tauri usa una única versión `15.x` (`package.json`/`Cargo.toml`/
-> `tauri.conf.json`, hoy 15.8.0), un paso por delante del core (`pyproject.toml`,
-> hoy 15.7.0) — ver `docs/INTEGRATION.md`. Los one-liners de bootstrap
+> `tauri.conf.json`), que desde el corte de v15.9.0 (2026-11-12) coincide con la
+> del core (`pyproject.toml`) — ver `docs/INTEGRATION.md`. Los one-liners de bootstrap
 > (`bootstrap.ps1` / `bootstrap.sh`) y el endpoint `endpoints[0]` siguen
 > siendo correctos; `SkiTemplar` es el placeholder de owner descrito en §0.3
 > — sustitúyelo por el owner real del repo público

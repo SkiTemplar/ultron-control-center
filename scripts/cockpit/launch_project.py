@@ -350,7 +350,7 @@ def main():
 
     projects = load_projects()
     if not projects:
-        print("[launcher] No projects registered. Run: python scan_projects.py")
+        print("[launcher] No projects registered. Escanea desde ULTRON: Projects -> Escanear")
         return 1
 
     if args.list:

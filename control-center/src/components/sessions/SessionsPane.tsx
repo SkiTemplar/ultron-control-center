@@ -19,7 +19,6 @@ import { errMsg } from "../../lib/errors";
 import type {
   SessionInfo,
   ProjectGroup,
-  SessionOrchestration,
   LiveSessionFeed,
 } from "./sessionTypes";
 import { SessionCard } from "./SessionCard";
@@ -32,7 +31,7 @@ import LiveSessionMonitor from "../orchestrator/LiveSessionMonitor";
 const POLL_INTERVAL_MS = 4_000;
 /** Plazo de list_active_sessions (medido: ~0,5 s en release con 2.700 transcripts). */
 const SESSIONS_TIMEOUT_MS = 20_000;
-/** Estado recordado del panel «Orquestación en vivo» ("1" = desplegado). */
+/** Estado recordado del panel «Subagentes y workflows» ("1" = desplegado). */
 const ORCH_OPEN_KEY = "ultron.sessions.orchOpen";
 
 // ---------------------------------------------------------------------------
@@ -128,11 +127,10 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 
 interface ProjectBlockProps {
   group: ProjectGroup;
-  orchBySession: Record<string, SessionOrchestration>;
   onOpenProject?: (projectId: string) => void;
 }
 
-function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps) {
+function ProjectBlock({ group, onOpenProject }: ProjectBlockProps) {
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   const totalCount = group.sessions.length + group.subagents.length;
 
@@ -171,7 +169,6 @@ function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps
             <SessionCard
               key={s.session_id}
               session={s}
-              orchestration={orchBySession[s.session_id] ?? null}
               onOpenProject={onOpenProject}
             />
           ))}
@@ -225,8 +222,7 @@ function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps
                 <SessionCard
                   key={s.session_id}
                   session={s}
-                  orchestration={orchBySession[s.session_id] ?? null}
-                  onOpenProject={onOpenProject}
+                      onOpenProject={onOpenProject}
                 />
               ))}
             </div>
@@ -243,12 +239,10 @@ function ProjectBlock({ group, orchBySession, onOpenProject }: ProjectBlockProps
 
 export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  // Feed completo de orquestación (live_session_feed). UN solo fetch alimenta a la
-  // vez el panel global de orquestación (modo del hook, último turno full y
-  // subagentes) y la correlación por session_id que enriquece cada tarjeta.
+  // Feed de live_session_feed (subagentes en vuelo y terminados) para el panel
+  // global LiveSessionMonitor.
   const [feed, setFeed] = useState<LiveSessionFeed | null>(null);
-  const [orchBySession, setOrchBySession] = useState<Record<string, SessionOrchestration>>({});
-  // Panel global de orquestación: colapsable para no robar espacio a la lista.
+  // Panel global de subagentes y workflows: colapsable para no robar espacio a la lista.
   // Plegado por defecto: las tarjetas de sesión son el contenido principal.
   // El estado se recuerda entre visitas.
   const [orchOpen, setOrchOpen] = useState(
@@ -283,8 +277,8 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
     inFlightRef.current = true;
     if (showSpinner) setRefreshing(true);
     try {
-      // Sesiones + feed de orquestación en paralelo. El feed es complementario:
-      // si falla, las sesiones se muestran igual (sin el bloque de orquestación).
+      // Sesiones + feed de subagentes en paralelo. El feed es complementario:
+      // si falla, las sesiones se muestran igual (sin los paneles de subagentes).
       const [data, liveFeed] = await Promise.all([
         // Con plazo (auditoría 2026-10-18): sin respuesta, la vista se quedaba
         // en «Cargando sesiones…» para siempre en vez de enseñar el error.
@@ -294,16 +288,7 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
         ),
       ]);
       setSessions(data);
-      if (liveFeed) {
-        setFeed(liveFeed);
-        // feed.orchestrations viene newest-first: la PRIMERA entrada de cada
-        // session_id es su último turno orquestado.
-        const map: Record<string, SessionOrchestration> = {};
-        for (const o of liveFeed.orchestrations) {
-          if (o.session_id && !(o.session_id in map)) map[o.session_id] = o;
-        }
-        setOrchBySession(map);
-      }
+      if (liveFeed) setFeed(liveFeed);
       setError(null);
       setLastUpdated(new Date());
     } catch (err) {
@@ -493,8 +478,8 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
       {/* ── Cuerpo scrollable ───────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
 
-        {/* Panel GLOBAL de orquestación (modo del hook, último turno full,
-            subagentes y previsualizador). Comparte el feed con las tarjetas. */}
+        {/* Panel GLOBAL de subagentes y workflows (subagentes en vuelo y
+            terminados, ejecuciones de workflows). */}
         <LiveSessionMonitor
           feed={feed}
           error={error}
@@ -583,7 +568,6 @@ export function SessionsPane({ onOpenProject }: SessionsPaneProps) {
             <ProjectBlock
               key={group.project_path}
               group={group}
-              orchBySession={orchBySession}
               onOpenProject={onOpenProject}
             />
           ))}

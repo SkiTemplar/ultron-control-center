@@ -14,6 +14,17 @@ fn parses_well_formed_lines_and_skips_noise() {
 }
 
 #[test]
+fn parse_facts_drops_user_profile_lines() {
+    // Aunque el modelo emita user_profile sin que se le ofrezca, no entra.
+    let facts = parse_facts(
+        "user_profile | nombre del usuario | el usuario se llama Ana | 0.7 | assistant\n\
+         decision | usar FTS5 | recall solo sparse | 0.8 | user",
+    );
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].kind, MemoryType::Decision);
+}
+
+#[test]
 fn unknown_type_defaults_to_fact() {
     let facts = parse_facts("xyz | algo | un detalle");
     assert_eq!(facts.len(), 1);
@@ -150,14 +161,14 @@ fn factory_threshold_can_auto_approve_top_confidence_capture() {
 }
 
 #[test]
-fn prompt_offers_user_profile_type() {
-    // 1.4: el extractor SOLO puede emitir tipos que el prompt le ofrece. Para que
-    // `user_profile` deje de ser una categoría vacía-sin-productor, el prompt debe
-    // ofrecerla (el parser ya la mapea). ROJO si el prompt no la lista.
+fn prompt_does_not_offer_user_profile_type() {
+    // 2026-11-13: el perfil del usuario lo mantiene el Retrato, no la autocaptura
+    // (105 user_profile activos, casi todos ruido). ROJO si el prompt lo vuelve a
+    // ofrecer.
     let p = extraction_prompt("una sesion de prueba con suficiente contenido para no truncar");
     assert!(
-        p.contains("user_profile"),
-        "el extraction_prompt debe ofrecer user_profile como tipo capturable"
+        !p.contains("user_profile"),
+        "user_profile retirado de la autocaptura: el prompt no debe ofrecerlo"
     );
     // Regresión 1.4: los tipos retirados NO deben reaparecer ofrecidos en el prompt.
     assert!(

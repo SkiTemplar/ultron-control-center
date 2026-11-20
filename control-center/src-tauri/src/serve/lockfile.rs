@@ -1,7 +1,7 @@
 //! Descubrimiento y propiedad del daemon: `~/.ultron/run/orchestrate.json`.
 //!
 //! Aquí vive todo lo que decide QUIÉN es el daemon vivo: el claim atómico que
-//! resuelve la carrera de arranque antes de pagar el warmup de E5, el ping de
+//! resuelve la carrera de arranque antes de abrir el socket, el ping de
 //! comprobación por loopback y la retirada del lockfile solo por su dueño.
 
 use std::io::{BufRead, BufReader, Write};
@@ -12,8 +12,7 @@ use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
 
 /// Un claim de lockfile mas joven que esto pertenece a un ganador que AUN esta
-/// calentando E5 (medido: warmup cold 1.8-4.8s): los perdedores salen sin
-/// pingear. Mas viejo sin daemon que responda = claim huerfano (crash) y se retira.
+/// arrancando: los perdedores salen sin pingear. Mas viejo sin daemon que responda = claim huerfano (crash) y se retira.
 const CLAIM_FRESH: Duration = Duration::from_secs(60);
 
 /// `~/.ultron/run/orchestrate.json` — the discovery lockfile.
@@ -82,19 +81,19 @@ pub(super) fn read_lockfile() -> Option<(u16, String)> {
 }
 
 /// Claim ATOMICO del lockfile via `create_new` — exactamente UN `serve` gana
-/// ANTES de pagar el warmup E5 (~1.5GB, segundos). Antes la carrera se detectaba
-/// DESPUES del warmup: dos SessionStart paralelos calentaban E5 a la vez y el
-/// perdedor quedaba residente hasta la ventana de inactividad (audit 2026-07-22).
+/// ANTES de arrancar. Antes la carrera se detectaba tarde: dos SessionStart
+/// paralelos arrancaban a la vez y el perdedor quedaba residente hasta la
+/// ventana de inactividad (audit 2026-07-22).
 /// El perdedor sale AQUI mismo (`Ok(false)` -> `already_running`), sin esperar a
 /// ningun watchdog: por eso el default residente no deja daemons rivales vivos.
 ///
 /// El body del claim NO lleva `port`: los clientes (que exigen port+token) caen
-/// al fallback one-shot mientras el ganador calienta, y otros `serve` ven el
+/// al fallback one-shot mientras el ganador arranca, y otros `serve` ven el
 /// claim y salen. Si el archivo ya existe:
-///   - edad < CLAIM_FRESH -> el ganador aun calienta (sin listener util): salir
+///   - edad < CLAIM_FRESH -> el ganador aun arranca (sin listener util): salir
 ///     SIN pingear.
 ///   - edad >= CLAIM_FRESH -> ping; vivo = already_running; muerto = claim
-///     huerfano (crash en warmup): se retira y se reintenta UNA vez.
+///     huerfano (crash al arrancar): se retira y se reintenta UNA vez.
 ///
 /// El retiro del huerfano va serializado por un segundo candado
 /// (`orchestrate.json.retire`, tambien `create_new`). Sin el, dos `serve`
@@ -136,7 +135,6 @@ fn try_create_claim(lock: &Path, own_token: &str) -> std::io::Result<()> {
         "token": own_token,
         "started_at": now_ms(),
         "schema": "orchestrate-daemon.v1",
-        "warming": true,
     });
     f.write_all(serde_json::to_string(&body).unwrap_or_default().as_bytes())
 }

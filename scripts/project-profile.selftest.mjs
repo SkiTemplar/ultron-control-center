@@ -72,6 +72,8 @@ function readProfile() {
 function fire(extraEnv = {}) {
   const env = {
     ...process.env,
+    // Procesa en línea: la cola de SessionEnd tiene su propio selftest.
+    ULTRON_DEFER_SESSION_END: "0",
     PROJECT_PROFILE_LOG: LOG,
     PROJECT_PROFILE_DIR: COCKPIT,
     PROJECT_PROFILE_REGISTRY: REGISTRY,

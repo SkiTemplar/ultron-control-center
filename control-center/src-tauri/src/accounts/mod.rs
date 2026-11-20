@@ -240,7 +240,7 @@ mod manual_verification {
     /// CLIs are installed on the machine running the test, and prints it
     /// with every email masked to its first character (`r***@dominio`).
     /// Run explicitly with:
-    ///   cargo test --features qdrant -p control-center --lib \
+    ///   cargo test -p control-center --lib \
     ///     accounts::manual_verification::print_real_report_masked -- --ignored --nocapture
     fn mask(email: &str) -> String {
         match email.split_once('@') {

@@ -208,10 +208,10 @@ test("el HUD cambia el modelo con el teclado y avisa si el effort no aplica", as
   await expect(model).toBeFocused();
 
   await model.press("ArrowDown");
-  // End va a la última opción: Haiku 5.5 desde el 2026-10-21.
+  // End va a la última opción: Fable 5.2 · 1M desde el 2026-11-11.
   await page.getByRole("listbox", { name: "Modelo" }).press("End");
   await page.getByRole("listbox", { name: "Modelo" }).press("Enter");
-  await expect(model).toContainText("Haiku 5.5");
+  await expect(model).toContainText("Fable 5.2");
 
   await page.getByTestId("hud-effort").first().click();
   await option(page, "max").click();

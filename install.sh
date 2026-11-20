@@ -10,7 +10,6 @@
 # Flow (parallel to install.ps1):
 #   1.  Preflight       - OS, distro, RAM, disk, internet, refuse-root, WSL warn
 #   2.  Dependencies    - curl, git, Node 22+, uv, Rust toolchain, Claude CLI
-#   3.  Qdrant native   - download Linux binary tarball, no Docker (per design)
 #   4.  Tauri deps      - webkit2gtk-4.1, libsoup-3.0, librsvg2-bin, build-essential
 #   5.  Dir layout      - ~/.ultron, ~/.ultron-vault, ~/.claude/{skills,agents}
 #   6.  Templates       - CLAUDE.md / SYSTEM-MAP.md / MEMORY.md / cockpit seeds
@@ -18,7 +17,7 @@
 #   8.  Skills + agents - copy templates/skills-manifest.example.yaml entries,
 #                         flat-copy repo/agents/*.md -> ~/.claude/agents/
 #   9.  Feature flags   - ~/.ultron/cockpit/features.json
-#   10. Summary         - lists installed / present / skipped / qdrant path
+#   10. Summary         - lists installed / present / skipped
 #
 # Re-running is safe: every step detects whether the work is already done and
 # skips it. The only destructive choice the script makes is `set -euo pipefail`
@@ -28,7 +27,6 @@
 # Flags:
 #   --non-interactive   : default-Y to every prompt (CI / unattended)
 #   --no-app            : skip Tauri build deps + Control Center build
-#   --no-docker         : skip Qdrant native binary (semantic recall disabled)
 #   --verbose           : set -x
 #   --install-root DIR  : override ~/.ultron
 #   -h | --help         : usage
@@ -42,17 +40,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-readonly ULTRON_VERSION="v15.7.0"
-readonly QDRANT_VERSION="v1.18.0"
-# Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
-readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
-readonly QDRANT_URL="https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/${QDRANT_TARBALL}"
-# SHA-256 of the v1.18.0 Linux tarball, from the digest GitHub publishes for the
-# release asset (the same source reproduces the hash install.ps1 pins for Windows).
-# Bump it together with QDRANT_VERSION. ULTRON_QDRANT_SHA overrides the pin; there
-# is no way to skip the check.
-readonly QDRANT_SHA256_PINNED="a1d782547c9a5ee3014f969472f64e64603be95ce4cc479d4ec3c91535d63c99"
-readonly QDRANT_SHA256="${ULTRON_QDRANT_SHA:-${QDRANT_SHA256_PINNED}}"
+readonly ULTRON_VERSION="v15.9.0"
 readonly NODE_MIN_MAJOR=22
 
 # Resolve the directory this script lives in (the repo root) without relying on
@@ -67,7 +55,6 @@ readonly REPO_ROOT="${SCRIPT_DIR}"
 # ---------------------------------------------------------------------------
 NON_INTERACTIVE=0
 NO_APP=0
-NO_DOCKER=0
 VERBOSE=0
 INSTALL_ROOT_OVERRIDE=""
 # Component selection (v15.7.1). Passing any of these enters "component
@@ -88,14 +75,13 @@ Usage: install.sh [flags]
 
   --non-interactive       Default-Y to every prompt (CI / unattended)
   --no-app                Skip Tauri build deps + Control Center compile
-  --no-docker             Skip Qdrant native binary (semantic recall disabled)
   --verbose               Trace shell execution (set -x)
   --install-root DIR      Override install root (default: \$HOME/.ultron)
   -h, --help              Show this message
 
 Component selection (deterministic, no prompts; combinable):
   --all                   core + skills + tones + agents
-  --core                  app deps + memory (Qdrant, brain_index, sidecar)
+  --core                  app deps + memory (sidecar)
                           + hooks (settings.json merge) - the default set
   --skills                core skills from the repo skills/ dir
   --tones                 tone seeds check for ~/.ultron/personality.json
@@ -116,7 +102,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --non-interactive)  NON_INTERACTIVE=1; shift ;;
         --no-app)           NO_APP=1; shift ;;
-        --no-docker)        NO_DOCKER=1; shift ;;
         --verbose)          VERBOSE=1; shift ;;
         --all)              OPT_ALL=1; shift ;;
         --core)             OPT_CORE=1; shift ;;
@@ -353,12 +338,11 @@ preflight() {
 
     # WSL detection. install.ps1 explicitly states ULTRON is designed for
     # native Windows; the mirror promise here is that we're designed for
-    # native Linux. WSL works but Tauri's webkit2gtk + Qdrant boot are best-
+    # native Linux. WSL works but Tauri's webkit2gtk is best-
     # effort. Warn + ask for confirmation in interactive mode.
     if grep -qi -e "microsoft" -e "wsl" /proc/version 2>/dev/null; then
         warn "WSL detected — ULTRON is designed for native Linux, WSL is best-effort"
-        info "Known issues: Tauri webkit2gtk render glitches, Qdrant systemd unit"
-        info "won't auto-start (use the qdrant binary directly), GUI apps need WSLg."
+        info "Known issues: Tauri webkit2gtk render glitches, GUI apps need WSLg."
         if ! confirm "Continue anyway?" "y"; then
             echo "Aborted by user (WSL)." >&2
             exit 130
@@ -597,96 +581,6 @@ install_claude() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 7: Qdrant native binary
-#
-# We install the Qdrant native binary per ULTRON design (no Docker since
-# v15.0.2). The tarball ships a single binary; we extract it to
-# ~/.ultron/qdrant-native/qdrant, chmod +x, and seed a minimal config.
-#
-# The tarball is verified against QDRANT_SHA256 before extracting, like install.ps1.
-# ---------------------------------------------------------------------------
-install_qdrant() {
-    step "5. Qdrant native (no Docker)"
-    if [[ $NO_DOCKER -eq 1 ]]; then
-        skip "Qdrant skipped via --no-docker (semantic recall disabled)"
-        return 0
-    fi
-
-    local native_dir="${INSTALL_ROOT}/qdrant-native"
-    local exe="${native_dir}/qdrant"
-    local cfg_dir="${native_dir}/config"
-    local cfg="${cfg_dir}/production.yaml"
-
-    if [[ -x "$exe" ]]; then
-        ok "qdrant binary already present at ${exe}"
-    else
-        mkdir -p "$native_dir"
-        local tmp_tar="/tmp/${QDRANT_TARBALL}"
-        info "downloading ${QDRANT_URL}"
-        curl -fSL --retry 3 -o "$tmp_tar" "$QDRANT_URL"
-        # Mandatory SHA256 verification: a mismatch aborts before extracting.
-        local actual_sha
-        actual_sha="$(sha256sum "$tmp_tar" | awk '{print tolower($1)}')"
-        local expected_sha
-        expected_sha="$(printf '%s' "$QDRANT_SHA256" | tr '[:upper:]' '[:lower:]')"
-        if [[ "$actual_sha" != "$expected_sha" ]]; then
-            fail "Qdrant tarball SHA256 mismatch — refusing to extract"
-            fail "  expected: ${expected_sha}"
-            fail "  actual:   ${actual_sha}"
-            rm -f "$tmp_tar"
-            return 1
-        fi
-        ok "Qdrant SHA256 verified: ${actual_sha}"
-        info "extracting to ${native_dir}"
-        tar -xzf "$tmp_tar" -C "$native_dir"
-        rm -f "$tmp_tar"
-        # The tarball ships a single 'qdrant' binary at the top level. If the
-        # release ever changes layout (e.g. nests under qdrant-<version>/) we
-        # surface it loudly instead of silently leaving the wrong path.
-        if [[ ! -f "$exe" ]]; then
-            warn "tarball layout changed — qdrant binary not at ${exe}"
-            local found
-            found="$(find "$native_dir" -maxdepth 3 -type f -name qdrant | head -1)"
-            if [[ -n "$found" ]]; then
-                mv "$found" "$exe"
-                info "moved ${found} -> ${exe}"
-            else
-                fail "could not find qdrant binary in extracted tarball"
-                return 1
-            fi
-        fi
-        chmod +x "$exe"
-        ok "qdrant binary installed at ${exe}"
-    fi
-
-    # Minimal config so the binary can be launched with --config-path. Mirrors
-    # the YAML install.ps1 seeds — same ports, same storage layout.
-    mkdir -p "$cfg_dir"
-    if [[ ! -f "$cfg" ]]; then
-        cat > "$cfg" <<'YAML'
-storage:
-  storage_path: ./storage
-  snapshots_path: ./snapshots
-
-service:
-  host: 127.0.0.1
-  http_port: 6333
-  grpc_port: 6334
-
-log_level: INFO
-YAML
-        ok "production.yaml seeded"
-    fi
-
-    # Probe — already running?
-    if curl -fsS --max-time 3 http://localhost:6333/healthz >/dev/null 2>&1; then
-        ok "Qdrant /healthz 200 (already running)"
-    else
-        info "Qdrant binary ready. Start with: ${exe} --config-path ${cfg}"
-    fi
-}
-
-# ---------------------------------------------------------------------------
 # Step 8: Tauri Linux build deps
 #
 # webkit2gtk-4.1 is required by Tauri 2.x. On Debian/Ubuntu it's split across
@@ -744,7 +638,6 @@ make_dirs() {
         "${INSTALL_ROOT}/plans"
         "${INSTALL_ROOT}/skills"
         "${INSTALL_ROOT}/scripts"
-        "${INSTALL_ROOT}/brain_index"
         "${INSTALL_ROOT}/.tmp"
         "${INSTALL_ROOT}/personal"
         "${INSTALL_ROOT}/sessions"
@@ -761,43 +654,6 @@ make_dirs() {
         fi
     done
     ok "directory tree provisioned"
-}
-
-# ---------------------------------------------------------------------------
-# Step 7b: brain_index FTS5 init
-#
-# install.ps1 calls `brain_index.py build` after the cockpit copy. Without an
-# equivalent step here, Linux users finish install with an empty
-# ~/.ultron/brain_index/index.db and the first SessionStart `auto-recall` hook
-# returns 0 hits (CLAUDE.md says deep-dive recall depends on this DB).
-# Skipped if uv is missing — brain_index.py needs uv-managed deps.
-# ---------------------------------------------------------------------------
-init_brain_index() {
-    step "7b. brain_index FTS5 build (cold)"
-    local script="${INSTALL_ROOT}/scripts/cockpit/brain_index.py"
-    if [[ ! -f "$script" ]]; then
-        # Fall back to the in-repo copy (fresh install hasn't bootstrapped yet).
-        script="${REPO_ROOT}/scripts/cockpit/brain_index.py"
-    fi
-    if [[ ! -f "$script" ]]; then
-        warn "brain_index.py not found in install root or repo — skip"
-        return 0
-    fi
-    if ! have_cmd uv; then
-        warn "uv missing — cannot build brain_index (re-run after uv install)"
-        return 0
-    fi
-    local db="${INSTALL_ROOT}/brain_index/index.db"
-    if [[ -f "$db" ]]; then
-        verb "brain_index already present at ${db} — running incremental update"
-        ( cd "$REPO_ROOT" && uv run python "$script" update >/dev/null 2>&1 ) \
-            || warn "brain_index update returned non-zero (continuing)"
-    else
-        info "building FTS5 index (one-time, ~5-15s depending on vault size)"
-        ( cd "$REPO_ROOT" && uv run python "$script" build >/dev/null 2>&1 ) \
-            || warn "brain_index build returned non-zero (continuing)"
-    fi
-    ok "brain_index ready at ${db}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1210,7 +1066,6 @@ print_summary() {
     echo " vault         : ${VAULT_DIR}"
     echo " claude dir    : ${CLAUDE_DIR}"
     echo " package mgr   : ${PKG_MGR:-?}"
-    echo " qdrant binary : ${INSTALL_ROOT}/qdrant-native/qdrant"
     echo ""
     echo " deps already present (${#DEPS_PRESENT[@]}):"
     if [[ ${#DEPS_PRESENT[@]} -eq 0 ]]; then
@@ -1244,8 +1099,6 @@ print_summary() {
     echo " next steps:"
     echo "   cd ${INSTALL_ROOT} && uv sync                 # provision .venv for hooks"
     echo "   claude login                                  # authenticate Claude"
-    echo "   ${INSTALL_ROOT}/qdrant-native/qdrant \\"
-    echo "       --config-path ${INSTALL_ROOT}/qdrant-native/config/production.yaml"
     if [[ $NO_APP -eq 0 ]]; then
         echo "   cd ${REPO_ROOT}/control-center && npm install && npm run tauri dev"
     fi
@@ -1285,12 +1138,11 @@ show_component_plan() {
     if [[ $WANT_CORE -eq 1 ]]; then
         info "[core] app deps + memory + hooks:"
         info "  - dependency check (pkg-manager auto-install): curl, git, Node ${NODE_MIN_MAJOR}+, uv, Rust, Claude Code"
-        info "  - Qdrant native binary -> ${INSTALL_ROOT}/qdrant-native"
         info "  - directory layout     -> ${INSTALL_ROOT} + ${VAULT_DIR}"
         info "  - templates seeded (only if absent): CLAUDE.md, SYSTEM-MAP.md, MEMORY.md, cockpit/personal seeds"
         info "  - hooks merge -> ${CLAUDE_DIR}/settings.json (template templates/settings-hooks.json; timestamped backup first)"
         info "  - feature flags -> ${INSTALL_ROOT}/cockpit/features.json (existing answers are kept)"
-        info "  - brain_index init + memory sidecar -> ${INSTALL_ROOT}/bin/ultron-memory"
+        info "  - memory sidecar -> ${INSTALL_ROOT}/bin/ultron-memory"
         info "  - control-center build stays manual on Linux (cd control-center && npm install && npm run tauri dev)"
     fi
     if [[ $WANT_SKILLS -eq 1 ]]; then
@@ -1351,7 +1203,6 @@ echo " Node ${NODE_MIN_MAJOR}+, uv, rustup, Claude Code) will be installed"
 echo " via the detected package manager unless you decline."
 [[ $NON_INTERACTIVE -eq 1 ]] && echo " (non-interactive: auto-accepting all installs)"
 [[ $NO_APP          -eq 1 ]] && echo " (--no-app: skipping Tauri build deps)"
-[[ $NO_DOCKER       -eq 1 ]] && echo " (--no-docker: skipping Qdrant native)"
 [[ $VERBOSE         -eq 1 ]] && echo " (verbose mode)"
 echo ""
 
@@ -1381,10 +1232,8 @@ if [[ $COMPONENT_MODE -eq 1 ]]; then
         install_uv
         install_rust
         install_claude
-        install_qdrant
         install_tauri_deps
         make_dirs
-        init_brain_index
         install_memory_sidecar
         seed_templates
         merge_hooks
@@ -1408,10 +1257,8 @@ install_node
 install_uv
 install_rust
 install_claude
-install_qdrant
 install_tauri_deps
 make_dirs
-init_brain_index
 install_memory_sidecar
 seed_templates
 merge_hooks

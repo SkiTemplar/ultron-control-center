@@ -72,6 +72,7 @@ pub mod comando_run;
 pub mod comandos;
 pub mod comandos_motor_sesion;
 pub mod comandos_v2;
+pub mod delegaciones;
 pub mod ediciones_turno;
 pub mod ficheros;
 pub mod historial;

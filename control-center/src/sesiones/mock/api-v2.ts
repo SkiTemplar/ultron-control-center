@@ -71,8 +71,9 @@ export function createV2Mock(deps: Deps): Pick<SesionesApi, V2Keys> & { tick(): 
       return { ok: true, text: `Effort: ${effort}` };
     },
     async setModel({ id, model }) {
-      // Igual que `valid_model_55` de ajustes.rs: Haiku 5.5 va sin ventana de 1M.
-      if (!/^claude-(?:(?:opus|sonnet)-5-5(?:\[1m\])?|haiku-5-5)$/.test(model)) throw new Error(`Modelo fuera de la familia 5.5: ${model}`);
+      // Igual que `valid_session_model` de ajustes.rs: familia 5.5 y Fable 5.2;
+      // Haiku 5.5 va sin ventana de 1M.
+      if (!/^claude-(?:(?:opus-5-5|sonnet-5-5|fable-5-2)(?:\[1m\])?|haiku-5-5)$/.test(model)) throw new Error(`Modelo fuera de la familia 5.5 y Fable 5.2: ${model}`);
       if (!deps.sessions().some((x) => x.id === id)) throw new Error("Sesión desconocida");
       settings.set(id, { ...settingsOf(id), model });
       deps.emit("sesiones://status", { id, model, contextTokens: 168000, contextWindow: model.endsWith("[1m]") ? 1000000 : 200000, costUsd: 3.42, mode: settingsOf(id).permissionMode ?? "auto" });

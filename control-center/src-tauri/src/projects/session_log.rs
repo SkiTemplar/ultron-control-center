@@ -480,7 +480,7 @@ generated_at: 2026-09-21T15:04:21.671Z\n\
 
 /// Lectura contra el disco real de esta maquina. Fuera de la suite (`#[ignore]`)
 /// porque depende de que existan sesiones resumidas; se ejecuta a mano con
-/// `cargo test --features qdrant reads_the_real_log -- --ignored --nocapture`
+/// `cargo test reads_the_real_log -- --ignored --nocapture`
 /// para comprobar el camino completo, no solo el parseo.
 #[cfg(test)]
 mod runtime_check {

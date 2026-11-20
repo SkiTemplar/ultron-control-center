@@ -11,6 +11,7 @@ import { SettingsSwitch } from "../SettingsSwitch";
 const SNAPSHOT = {
   path: "C:/Users/demo/.claude/settings.json",
   content: { model: "claude-opus-5-5" },
+  content_hash: "huella-de-la-lectura",
   backup_dir: "C:/Users/demo/.claude/backups",
   recent_backups: ["C:/Users/demo/.claude/backups/settings-2026-10-17.json"],
 };
@@ -66,6 +67,30 @@ describe("Settings", () => {
     expect(screen.getByRole("tab", { name: /settings\.json/ }).getAttribute("title")).toBe(
       "Cambios sin guardar",
     );
+  });
+
+  // Hallazgo 27 (auditoría 2026-11-08): el guardado manda la huella de la
+  // lectura y, si el backend lo rechaza porque el fichero cambió, el error se
+  // ve y el borrador no se pierde.
+  it("guarda con la huella de la lectura y muestra el rechazo por cambio en disco", async () => {
+    const STALE = "settings.json ha cambiado en disco desde que se leyó";
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "settings_save") throw STALE;
+      return mockBackend(cmd);
+    });
+    render(<Settings />);
+    fireEvent.click(await screen.findByRole("tab", { name: "settings.json" }));
+    const input = await screen.findByDisplayValue("claude-opus-5-5");
+    fireEvent.change(input, { target: { value: "claude-sonnet-5-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText(STALE)).toBeTruthy();
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("settings_save", {
+      content: { model: "claude-sonnet-5-5" },
+      expectedHash: "huella-de-la-lectura",
+    });
+    expect(screen.getByDisplayValue("claude-sonnet-5-5")).toBeTruthy();
+    expect(screen.getByText("Cambios sin guardar")).toBeTruthy();
   });
 });
 

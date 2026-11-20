@@ -1,16 +1,17 @@
 // projects/write_ops.rs — Create, update, delete, touch operations on projects.json.
 
 use super::normalise::{normalise_color, normalise_ide, normalise_provider, normalise_shell};
-use super::registry::{atomic_write, find_entry_mut, load_registry_mut, projects_lock, slugify};
+use super::registry::{
+    atomic_write, find_entry_mut, load_registry_at, lock_registry, require_registry_path, slugify,
+};
 use super::types::{
     AddLauncherItemPayload, CreateProjectPayload, CreateProjectResult, DeleteProjectResult,
     ExecutableEntry, LauncherItem, UpdateProjectPayload, UpdateProjectResult,
 };
 
-/// Append a new project to ~/.ultron/cockpit/projects.json directly. Avoids
-/// invoking project_editor.py (which routes through an LLM for description
-/// generation we don't need here). Idempotency: if the id collides, we
-/// suffix -2, -3, etc.
+/// Append a new project to ~/.ultron/cockpit/projects.json directly (the
+/// Python project_editor.py it replaced was retired on 2026-11-14).
+/// Idempotency: if the id collides, we suffix -2, -3, etc.
 pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResult, String> {
     use std::path::Path;
     if p.name.trim().is_empty() {
@@ -48,17 +49,9 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         return Err("name produced empty id after slugify".to_string());
     }
 
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-
-    let registry = dirs::home_dir()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(".ultron/cockpit/projects.json");
-    let raw =
-        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
-    let mut root: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
+    let mut root = load_registry_at(&registry)?;
 
     let projects = root
         .get_mut("projects")
@@ -183,10 +176,9 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
     if p.id.trim().is_empty() {
         return Err("id is empty".to_string());
     }
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-    let (registry, mut root) = load_registry_mut()?;
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
+    let mut root = load_registry_at(&registry)?;
     {
         let projects = root
             .get_mut("projects")
@@ -329,12 +321,8 @@ pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
     if id.trim().is_empty() {
         return Err("id is empty".to_string());
     }
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-    let registry = dirs::home_dir()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(".ultron/cockpit/projects.json");
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
     let raw =
         std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let mut root: serde_json::Value =
@@ -367,10 +355,9 @@ pub fn set_default_provider_inner(
         return Err("project_id is empty".to_string());
     }
     let normalised = normalise_provider(Some(provider.as_str()));
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-    let (registry, mut root) = load_registry_mut()?;
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
+    let mut root = load_registry_at(&registry)?;
     {
         let entry = find_entry_mut(&mut root, &project_id)?;
         entry["default_provider"] = serde_json::Value::String(normalised.clone());
@@ -414,12 +401,8 @@ pub fn touch_project_inner(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Ok(());
     }
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-    let registry = dirs::home_dir()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(".ultron/cockpit/projects.json");
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
     let raw = match std::fs::read_to_string(&registry) {
         Ok(r) => r,
         Err(_) => return Ok(()),
@@ -497,10 +480,9 @@ pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjec
         return Err("project_id is empty".to_string());
     }
     validate_launcher_item(&p.item)?;
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-    let (registry, mut root) = load_registry_mut()?;
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
+    let mut root = load_registry_at(&registry)?;
     {
         let entry = find_entry_mut(&mut root, &p.project_id)?;
         let project_path = entry
@@ -572,10 +554,9 @@ pub fn remove_launcher_item_inner(
     if project_id.trim().is_empty() {
         return Err("project_id is empty".to_string());
     }
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
-    let (registry, mut root) = load_registry_mut()?;
+    let registry = require_registry_path()?;
+    let _guard = lock_registry(&registry)?;
+    let mut root = load_registry_at(&registry)?;
     {
         let entry = find_entry_mut(&mut root, &project_id)?;
         if let Some(arr) = entry.get_mut("items").and_then(|v| v.as_array_mut()) {

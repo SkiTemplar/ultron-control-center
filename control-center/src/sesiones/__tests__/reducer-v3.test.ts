@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialState, reducer, type State } from "../reducer";
-import type { Ask, ChatMessage, SessionInfo, ToolPayload } from "../types";
+import type { Ask, ChatMessage, SessionInfo, ToolPayload, TurnPayload } from "../types";
 
 const toolMsg = (uuid: string, id: string, agentId: string | null = null): ChatMessage => ({
   uuid, role: "assistant", timestamp: "2026-10-08T10:00:00Z", agentId, blocks: [{ kind: "toolUse", id, name: "Bash", input: {}, summary: "ls" }],
@@ -94,5 +94,25 @@ describe("preguntas recuperables e interrupción", () => {
     s = reducer(s, { type: "askResolved", askId: "k" });
     expect(s.asks).toEqual([]);
     expect(s.interruptingAsks).toEqual([]);
+  });
+});
+
+describe("turnos cerrados", () => {
+  const turn = (turnId: string, reason: TurnPayload["reason"], durationMs: number): TurnPayload => ({
+    id: "s1", turnId, startedAt: "", endedAt: "", durationMs, reason,
+  });
+
+  it("el cierre real de un turno dado por perdido sustituye al `lost`", () => {
+    let s = reducer(initialState, { type: "turn", payload: turn("T", "lost", 10_000) });
+    s = reducer(s, { type: "turn", payload: turn("T", "answer", 250_000) });
+    expect(s.bySession.s1.turns.map((t) => [t.turnId, t.reason])).toEqual([["T", "answer"]]);
+  });
+
+  it("turnos distintos y los que no traen turnId se acumulan (caso negativo)", () => {
+    let s = reducer(initialState, { type: "turn", payload: turn("T1", "answer", 1) });
+    s = reducer(s, { type: "turn", payload: turn("T2", "answer", 1) });
+    s = reducer(s, { type: "turn", payload: turn("", "answer", 1) });
+    s = reducer(s, { type: "turn", payload: turn("", "answer", 2) });
+    expect(s.bySession.s1.turns).toHaveLength(4);
   });
 });

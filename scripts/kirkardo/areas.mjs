@@ -33,7 +33,6 @@ export const CHECK_AREA = {
   // Existencia o texto (auditoria 2026-11-01): siguen en el informe, pero no
   // compran nota. Solo dan rojo si alguien borra el fichero o la cadena.
   "3.1": "hygiene", // claude en el PATH: preflight del entorno
-  "10.1": "hygiene", // literal del invoke de orchestrate_prompt
   "10.3": "hygiene", // texto TODO:wire en lib.rs
   "10.5": "hygiene", // texto TODO en Agents.tsx
   "11.5": "hygiene", // delete_mcp: cadena de llamadas leida como texto

@@ -6,12 +6,12 @@
 //! evento queda en `memory_events`.
 //!
 //! Por qué tabla aparte y no un status: 1.654 `agent_note` (40 % de las filas)
-//! que el retriever ya excluía por policy seguían pesando en FTS5, en Qdrant y
+//! que el retriever ya excluía por policy seguían pesando en FTS5 y
 //! en cada `SELECT ... WHERE status='active'`. Deprecar las dejaba dentro.
 //!
-//! Solo SQL. La sincronización con Qdrant y el evento del ledger los pone el
-//! servicio (`MemoryService::archive_by_type`), único escritor; el evento se
-//! escribe aquí dentro de la misma transacción que mueve la fila.
+//! Solo SQL. El evento del ledger lo construye el servicio
+//! (`MemoryService::archive_by_type`), único escritor, y se escribe aquí
+//! dentro de la misma transacción que mueve la fila.
 
 use rusqlite::{params, Connection};
 

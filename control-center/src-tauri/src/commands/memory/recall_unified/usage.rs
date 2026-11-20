@@ -53,32 +53,25 @@ pub fn build_trace_diagnostic(
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
-    dense_enabled: bool,
-    rerank: bool,
 ) -> Result<RecallTrace, String> {
     build_trace_with(
         query,
         limit,
         project_id,
         cross_project,
-        dense_enabled,
-        rerank,
         None,
         RecallUse::Diagnostic,
     )
 }
 
-/// [`super::recall_pack`] sin telemetría de uso (mismo pipeline: denso según
-/// disponibilidad, `rerank` del llamante).
+/// [`super::recall_pack`] sin telemetría de uso (mismo pipeline).
 pub fn recall_pack_diagnostic(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
-    rerank: bool,
 ) -> Result<RecallPack, String> {
-    build_trace_diagnostic(query, limit, project_id, cross_project, true, rerank)
-        .map(pack_from_trace)
+    build_trace_diagnostic(query, limit, project_id, cross_project).map(pack_from_trace)
 }
 
 #[cfg(test)]

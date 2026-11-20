@@ -102,6 +102,7 @@ pub(super) fn proceso_salio(n: &mut EstadoSesion, code: i32, ef: &mut Vec<Efecto
     n.working_since = None;
     n.herramientas.clear();
     n.interrumpiendo = None;
+    n.perdido = None;
 }
 
 pub(super) fn reinicio(n: &mut EstadoSesion, ahora: Ms, ef: &mut Vec<Efecto>) {
@@ -133,6 +134,7 @@ pub(super) fn reinicio(n: &mut EstadoSesion, ahora: Ms, ef: &mut Vec<Efecto>) {
     n.pausa_interrupcion = None;
     n.recuperado_sin_prompt = false;
     n.ultimo_turn_end_puente = None;
+    n.perdido = None;
     n.pantalla = EstadoPantalla::Unknown;
     // El puente era del proceso anterior: el relanzado lo anuncia en su
     // `hello`, y sin él la sesión va por pantalla (sin esperar un puente que
@@ -228,6 +230,10 @@ pub(super) fn turno_fin(
     // es la evidencia que reanuda la cola y la prueba de que el puente vive.
     n.ultimo_turn_end_puente = Some(ahora);
     tiempo::reanudar_cola(n, "turnEnd real del puente", ef);
+    // El fin real del turno dado por perdido: ya no queda actividad suya.
+    if n.perdido.as_ref().is_some_and(|(p, _)| p == turn_id) {
+        n.perdido = None;
+    }
     if !matches!(n.status, SessionStatus::Working | SessionStatus::Waiting) {
         ef.push(Efecto::Log(format!("turnEnd {turn_id} sin turno abierto")));
         return;

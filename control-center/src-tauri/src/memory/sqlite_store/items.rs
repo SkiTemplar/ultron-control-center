@@ -222,8 +222,8 @@ pub fn search_items(
 /// Como [`search_items`] pero, con `only_type = Some(t)`, solo devuelve items
 /// de ese tipo (misma búsqueda FTS5/LIKE, mismo orden BM25). Sirve para
 /// buscar dentro de una familia de memorias sin que el resto del corpus
-/// ocupe el fanout (2026-09-03: la lección top-1 con reranker caía al rango 15
-/// sin él, detrás de constraints con un solo hit sparse).
+/// ocupe el fanout (2026-09-03: la lección top-1 caía al rango 15 sin él,
+/// detrás de constraints con un solo hit sparse).
 pub fn search_items_typed(
     conn: &Connection,
     query: &str,
@@ -276,8 +276,8 @@ pub fn search_items_typed(
     }
 
     if out.is_empty() {
-        // B3 fallback: when FTS5 is unavailable (the release + `qdrant` build can
-        // land here), do a TERM-OR LIKE instead of a whole-string substring —
+        // B3 fallback: when FTS5 is unavailable (an SQLite build without the
+        // FTS5 module lands here), do a TERM-OR LIKE instead of a whole-string substring —
         // otherwise a multi-word query matches only the literal phrase and returns 0.
         let terms: Vec<String> = sparse_terms(query)
             .iter()
@@ -357,16 +357,6 @@ pub fn count_by_source(conn: &Connection, source: Source) -> i64 {
         |r| r.get(0),
     )
     .unwrap_or(0)
-}
-
-/// True when an item already carries this `qdrant_point_id` (per-point ETL dedup).
-pub fn item_exists_by_qdrant_id(conn: &Connection, qid: &str) -> bool {
-    conn.query_row(
-        "SELECT 1 FROM memory_items WHERE qdrant_point_id = ?1 LIMIT 1",
-        params![qid],
-        |_| Ok(()),
-    )
-    .is_ok()
 }
 
 /// Active items pinned by the user — always surfaced (Session Resume, recall).

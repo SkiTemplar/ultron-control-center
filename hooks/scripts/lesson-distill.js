@@ -38,6 +38,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const { observe, logHookError } = require('./lib/hook-obs');
+const { takePayload } = require('./lib/deferred-hooks');
 const { appendJsonl } = require('./lib/jsonl-log');
 const { parseTurns } = require('./lib/transcript-turns');
 const { findBinary, daemonRequest, projectIdFromCwd, spawnDetached, readDaemonLock } = require('./lib/ultron-memory-cli');
@@ -211,9 +212,12 @@ function propose(candidate, project) {
 async function main() {
   if (process.env.CLAUDE_NO_HOOKS === '1' || process.env.LESSON_DISTILL_DISABLED === '1') return;
 
+  // En SessionEnd solo se encola: el barrido lo ejecuta fuera del Job de Sessions.
+  const raw = takePayload('lesson-distill', readStdin);
+  if (raw === null) return;
+
   let stdin = {};
   try {
-    const raw = readStdin();
     stdin = raw ? JSON.parse(raw) : {};
   } catch (_) {
     stdin = {};

@@ -12,7 +12,7 @@
 #   2. Downloads the `ultron-system-<ver>.zip` asset and extracts to ~/.ultron.
 #   3. Downloads the `ULTRON Control Center_<ver>_x64-setup.exe` installer and
 #      verifies it against the SHA-256 published with the release.
-#   4. Runs install.ps1 (which wires skills / agents / hooks / Qdrant).
+#   4. Runs install.ps1 (which wires skills / agents / hooks).
 #   5. Launches the Control Center installer interactively.
 #
 # Idempotent: re-running upgrades to the latest release. Local edits under

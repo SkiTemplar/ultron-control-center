@@ -7,16 +7,14 @@
 //!
 //! Camino: segunda pasada de `build_trace_typed` con `cross_project = true` y
 //! `only_type = lesson` (mismas puertas de honestidad que el recall normal:
-//! floor, poda por margen, trust gate), sin repetir lo que ya trae el pack del
-//! proyecto. Coste: un recall híbrido extra SOLO en turnos de fallo. Se inyecta
+//! relevance floor y trust gate), sin repetir lo que ya trae el pack del
+//! proyecto. Coste: un recall FTS5 extra SOLO en turnos de fallo. Se inyecta
 //! como una línea por lección (máximo 3) en el bloque `<orchestration-context>`
 //! del hook.
 //!
-//! Por qué solo entre `lesson` (decidido 2026-09-03): el hot path va sin
-//! reranker y en el recall general la lección relevante (dense 0.888) caía al
-//! rango 15, detrás de constraints con un solo hit sparse; con el k-NN y el FTS
-//! restringidos al tipo, el fanout es solo de lecciones y el floor dense sigue
-//! dejando fuera las que no encajan con el síntoma.
+//! Por qué solo entre `lesson` (decidido 2026-09-03): en el recall general la
+//! lección relevante caía al rango 15, detrás de constraints con un solo hit
+//! sparse; con el FTS restringido al tipo, el fanout es solo de lecciones.
 
 use crate::commands::memory::recall_unified::{build_trace_typed, RecallEntry};
 use crate::memory::MemoryType;
@@ -26,13 +24,6 @@ use serde::{Deserialize, Serialize};
 pub const MAX_LECCIONES: usize = 3;
 /// Candidatas que se piden al recall antes de filtrar por tipo.
 const FANOUT: usize = 12;
-/// Similitud dense mínima para que una lección "encaje" con el síntoma. Con el
-/// k-NN restringido a `lesson` el fanout trae TODAS las lecciones del corpus
-/// (hoy 3) y la poda por margen del recall conserva siempre las primeras, así
-/// que sin este corte cada turno de fallo inyectaba las tres. 0.83 es el mismo
-/// listón empírico del floor de abstención del read-path y del juez de
-/// contradicción: por debajo, dos textos E5 no hablan del mismo tema.
-const LESSON_MIN_DENSE: f32 = 0.83;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LessonHit {
@@ -168,14 +159,12 @@ fn sin_prefijo(titulo: &str) -> String {
         .to_string()
 }
 
-/// ¿La lección encaja con el síntoma? Dense >= `LESSON_MIN_DENSE`; si el dense
-/// no está (E5/Qdrant caídos, modo degradado) solo pasa la primera del sparse,
-/// que es la única con señal léxica fuerte.
+/// ¿La lección encaja con el síntoma? Solo pasa la primera del sparse, que es
+/// la única con señal léxica fuerte: la búsqueda restringida a `lesson` trae
+/// TODAS las lecciones del corpus y sin este corte cada turno de fallo las
+/// inyectaría todas.
 fn encaja_con_el_sintoma(e: &RecallEntry) -> bool {
-    match e.dense_score {
-        Some(s) => s >= LESSON_MIN_DENSE,
-        None => e.sparse_rank == Some(0),
-    }
+    e.sparse_rank == Some(0)
 }
 
 /// Filtro puro sobre las entradas del recall: solo `lesson`, que encajen con el
@@ -208,19 +197,9 @@ pub fn filtrar_lecciones(entries: &[RecallEntry], ya_inyectadas: &[RecallEntry])
 pub fn recall_lecciones(
     prompt: &str,
     project_id: Option<&str>,
-    dense_enabled: bool,
-    rerank: bool,
     ya_inyectadas: &[RecallEntry],
 ) -> (Vec<LessonHit>, Vec<String>) {
-    match build_trace_typed(
-        prompt,
-        FANOUT,
-        project_id,
-        true,
-        dense_enabled,
-        rerank,
-        Some(MemoryType::Lesson),
-    ) {
+    match build_trace_typed(prompt, FANOUT, project_id, true, Some(MemoryType::Lesson)) {
         Ok(t) => (filtrar_lecciones(&t.injected, ya_inyectadas), Vec::new()),
         Err(e) => (Vec::new(), vec![format!("lessons recall unavailable: {e}")]),
     }
@@ -239,42 +218,25 @@ mod tests {
             project_id: project.map(str::to_string),
             kind: kind.to_string(),
             score: 0.5,
-            dense_rank: Some(0),
-            sparse_rank: None,
-            dense_score: Some(0.9),
+            sparse_rank: Some(0),
             reason: String::new(),
             token_estimate: 10,
         }
     }
 
     #[test]
-    fn una_leccion_lejana_del_sintoma_no_se_inyecta() {
+    fn solo_pasa_la_primera_del_sparse() {
         // Medido 2026-09-03: con solo 3 lecciones en el corpus, un fallo de
         // macro Rust traia tambien la de "formato de salida" y la de "RAM".
-        let mut lejana = entry("lejos", "lesson", "[lesson] otra cosa", Some("otro"));
-        lejana.dense_score = Some(0.5);
-        let mut justa = entry("justa", "lesson", "[lesson] en el limite", Some("otro"));
-        justa.dense_score = Some(LESSON_MIN_DENSE);
-        let l = filtrar_lecciones(&[lejana, justa], &[]);
-        assert_eq!(l.len(), 1);
-        assert_eq!(l[0].canonical_id, "justa");
-    }
-
-    #[test]
-    fn sin_dense_solo_pasa_la_primera_del_sparse() {
-        let mut top = entry("top", "lesson", "[lesson] primera del bm25", Some("otro"));
-        top.dense_score = None;
-        top.sparse_rank = Some(0);
+        let top = entry("top", "lesson", "[lesson] primera del bm25", Some("otro"));
         let mut tercera = entry(
             "tercera",
             "lesson",
             "[lesson] tercera del bm25",
             Some("otro"),
         );
-        tercera.dense_score = None;
         tercera.sparse_rank = Some(2);
         let mut sin_nada = entry("nada", "lesson", "[lesson] sin señal", Some("otro"));
-        sin_nada.dense_score = None;
         sin_nada.sparse_rank = None;
         let l = filtrar_lecciones(&[tercera, sin_nada, top], &[]);
         assert_eq!(l.len(), 1);

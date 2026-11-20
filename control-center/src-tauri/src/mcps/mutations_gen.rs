@@ -87,7 +87,10 @@ fn delete_from_legacy_settings(name: &str) -> Result<McpMutationResult, String> 
     if !removed {
         return Err(format!("mcpServers['{}'] does not exist", name));
     }
-    let save = settings::settings_save_inner(settings::SettingsSavePayload { content })?;
+    let save = settings::settings_save_inner(settings::SettingsSavePayload {
+        content,
+        expected_hash: snapshot.content_hash,
+    })?;
     Ok(McpMutationResult {
         success: save.success,
         name: name.to_string(),
@@ -141,7 +144,10 @@ pub fn set_mcpjson_disabled_inner(
         serde_json::Value::Array(list.into_iter().map(serde_json::Value::String).collect()),
     );
 
-    let save = settings::settings_save_inner(settings::SettingsSavePayload { content })?;
+    let save = settings::settings_save_inner(settings::SettingsSavePayload {
+        content,
+        expected_hash: snapshot.content_hash,
+    })?;
     Ok(McpMutationResult {
         success: save.success,
         name,

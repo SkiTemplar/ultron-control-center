@@ -1,6 +1,4 @@
-// Tests del gate anti-paráfrasis. PUROS: sin brain.db, sin Qdrant y sin E5 — el
-// coseno del gate (b) entra como parámetro, así que se prueba con un embedder
-// SIMULADO (los scores que devolvería Qdrant) sin cargar 1,5 GB de modelo.
+// Tests del gate anti-paráfrasis. PUROS: sin brain.db ni red.
 
 use super::*;
 
@@ -14,16 +12,16 @@ fn jaccard(a: &str, b: &str) -> f32 {
 #[test]
 fn el_mismo_titulo_reordenado_y_con_tildes_normaliza_igual() {
     // Minúsculas, tildes, puntuación, stopwords y orden no distinguen un título.
-    let a = "La decisión de usar Qdrant nativo";
-    let b = "usar qdrant nativo: decision";
+    let a = "La decisión de usar SQLite nativo";
+    let b = "usar sqlite nativo: decision";
     assert_eq!(title_tokens(a), title_tokens(b));
     assert!(titles_match(a, b));
 }
 
 #[test]
 fn titulo_reformulado_por_encima_del_umbral_es_paraphrasis() {
-    let a = "Recall híbrido con RRF sobre FTS5 y E5";
-    let b = "Recall híbrido RRF sobre FTS5, E5 y reranker";
+    let a = "Recall híbrido con RRF sobre FTS5 y BM25";
+    let b = "Recall híbrido RRF sobre FTS5, BM25 y ranking";
     let j = jaccard(a, b);
     assert!(
         j >= PARAPHRASE_TITLE_JACCARD,
@@ -35,7 +33,7 @@ fn titulo_reformulado_por_encima_del_umbral_es_paraphrasis() {
 #[test]
 fn titulos_de_hechos_distintos_no_disparan() {
     // Caso negativo: compartir alguna palabra NO es una paráfrasis.
-    let a = "El reranker reordena el top fusionado del recall";
+    let a = "El ranking reordena el top fusionado del recall";
     let b = "La pestaña Finance se compila con la feature del build local";
     assert!(jaccard(a, b) < PARAPHRASE_TITLE_JACCARD);
     assert!(!titles_match(a, b));
@@ -60,18 +58,15 @@ fn las_negaciones_no_son_stopwords() {
 }
 
 #[test]
-fn una_negacion_asimetrica_veta_tambien_el_coseno() {
-    // Caso negativo del gate (b): E5 no separa bien la negación, así que un
-    // coseno altísimo entre "usar X" y "no usar X" es esperable. Si el veto no
-    // corriera ANTES del coseno, el gate descartaría la corrección en vez de
-    // dejar que el detector de contradicción la adjudique.
+fn una_negacion_asimetrica_veta_la_parafrasis_dentro_de_la_ventana() {
+    // Caso negativo: dentro de la ventana, "usar X" y "no usar X" no son el
+    // mismo hecho; el gate deja que el detector de contradicción lo adjudique.
     let ahora = 1_757_000_000_000_i64;
     assert!(!is_paraphrase_of(
         "Usar el daemon para embeber la query",
         "No usar el daemon para embeber la query",
         ahora - HORA_MS,
         ahora,
-        Some(0.99),
     ));
 }
 
@@ -79,9 +74,9 @@ fn una_negacion_asimetrica_veta_tambien_el_coseno() {
 fn titulos_cortos_solo_disparan_si_son_identicos() {
     // Sin masa léxica el Jaccard no opina (dos títulos de una palabra pueden ser
     // el mismo tema y hechos distintos); la identidad exacta sí.
-    assert_eq!(jaccard("Qdrant", "Qdrant nativo"), 0.0);
-    assert!(titles_match("Qdrant nativo", "qdrant, nativo"));
-    assert!(!titles_match("Qdrant", "Reranker"));
+    assert_eq!(jaccard("SQLite", "SQLite nativo"), 0.0);
+    assert!(titles_match("SQLite nativo", "sqlite, nativo"));
+    assert!(!titles_match("SQLite", "Ranking"));
     assert!(!titles_match("", "lo que sea"));
 }
 
@@ -107,51 +102,33 @@ fn la_ventana_cubre_24_h_y_nada_mas() {
 }
 
 #[test]
-fn fuera_de_la_ventana_no_dispara_ni_con_titulo_identico_ni_con_coseno() {
-    let ahora = 1_757_000_000_000_i64;
-    let viejo = ahora - 25 * HORA_MS;
-    assert!(!is_paraphrase_of(
-        "Recall híbrido con RRF",
-        "Recall híbrido con RRF",
-        viejo,
-        ahora,
-        Some(0.99),
-    ));
-}
-
-// --- gate (b): coseno simulado ----------------------------------------------
-
-#[test]
-fn el_coseno_dispara_aunque_el_titulo_no_se_parezca() {
-    // Embedder simulado: el score que devolvería el k-NN de Qdrant.
+fn dentro_de_la_ventana_dispara_con_titulo_identico_y_fuera_no() {
     let ahora = 1_757_000_000_000_i64;
     assert!(is_paraphrase_of(
-        "El daemon sirve los embeddings a los one-shot",
-        "Los procesos de un solo tiro piden el vector al proceso residente",
+        "Recall con RRF sobre FTS5",
+        "Recall con RRF sobre FTS5",
         ahora - HORA_MS,
         ahora,
-        Some(0.94),
+    ));
+    // Caso negativo: el mismo título hace 25 h vuelve a entrar.
+    assert!(!is_paraphrase_of(
+        "Recall con RRF sobre FTS5",
+        "Recall con RRF sobre FTS5",
+        ahora - 25 * HORA_MS,
+        ahora,
     ));
 }
 
 #[test]
-fn el_coseno_por_debajo_del_umbral_no_dispara() {
-    // Caso negativo: 0.90 es "mismo tema", no "mismo hecho".
+fn titulos_distintos_no_disparan_dentro_de_la_ventana() {
+    // Caso negativo: sin el detector de coseno, una reescritura con otras
+    // palabras ya no se marca como paráfrasis (alcance declarado).
     let ahora = 1_757_000_000_000_i64;
     assert!(!is_paraphrase_of(
-        "El daemon sirve los embeddings a los one-shot",
-        "El daemon suelta los modelos por inactividad",
+        "El daemon sirve el recall a los one-shot",
+        "Los procesos de un solo tiro piden el pack al proceso residente",
         ahora - HORA_MS,
         ahora,
-        Some(0.90),
-    ));
-    // Sin embedding disponible tampoco: solo queda el gate de título.
-    assert!(!is_paraphrase_of(
-        "El daemon sirve los embeddings a los one-shot",
-        "El daemon suelta los modelos por inactividad",
-        ahora - HORA_MS,
-        ahora,
-        None,
     ));
 }
 

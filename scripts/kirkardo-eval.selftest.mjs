@@ -82,11 +82,12 @@ assert(readHarnessNote(fxPass).includes("all_cats_pass=PASS"), "run limpio -> PA
 // ---------------------------------------------------------------------------
 console.log("C) vigencia de decisiones (fixtures)");
 const H = await import(pathToFileURL(join(ROOT, "scripts", "kirkardo-eval.mjs")).href);
-const OFF = { ULTRON_DENSE: "0", ULTRON_RERANK: "0" };
-assert(H.denseOffStatus({ settingsEnv: OFF, userEnv: OFF, processEnv: {}, doctorDense: false }).inForce === true, "denso: config 0 + doctor dense=false -> en vigor");
-assert(H.denseOffStatus({ settingsEnv: OFF, userEnv: OFF, processEnv: { ULTRON_DENSE: "1" }, doctorDense: false }).inForce === false, "denso: override del entorno -> fuera de vigor");
-assert(H.denseOffStatus({ settingsEnv: {}, userEnv: OFF, processEnv: {}, doctorDense: false }).inForce === false, "denso: settings.env incompleto -> fuera de vigor");
-assert(H.denseOffStatus({ settingsEnv: OFF, userEnv: OFF, processEnv: {}, doctorDense: true }).inForce === false, "denso: doctor dense=true -> fuera de vigor");
+const CARGO_OK = "[features]\ndefault = []\nfinance = []\n";
+assert(H.denseOffStatus({ cargoToml: CARGO_OK, denseModules: [] }).inForce === true, "denso: sin fastembed, sin feature y sin modulos -> retirado en vigor");
+assert(H.denseOffStatus({ cargoToml: CARGO_OK + 'fastembed = { version = "5" }\n', denseModules: [] }).inForce === false, "denso: fastembed en Cargo.toml -> fuera de vigor");
+assert(H.denseOffStatus({ cargoToml: CARGO_OK + 'qdrant = ["dep:fastembed"]\n', denseModules: [] }).inForce === false, "denso: feature qdrant -> fuera de vigor");
+assert(H.denseOffStatus({ cargoToml: CARGO_OK, denseModules: ["qdrant.rs"] }).inForce === false, "denso: modulo denso presente -> fuera de vigor");
+assert(H.denseOffStatus({ cargoToml: null, denseModules: [] }).inForce === false, "denso: Cargo.toml ilegible -> fuera de vigor");
 const LIGHT = { ok: true, full: false, len: 0 };
 assert(H.orchestrateLightStatus({ settingsEnv: {}, userEnv: { ULTRON_ORCHESTRATE: null }, processEnv: {}, probe: LIGHT }).inForce === true, "orchestrate: sin full -> ligero en vigor");
 assert(H.orchestrateLightStatus({ settingsEnv: { ULTRON_ORCHESTRATE: "full" }, userEnv: {}, processEnv: {}, probe: LIGHT }).inForce === false, "orchestrate: settings.env full -> fuera de vigor");
@@ -150,12 +151,19 @@ const ph = P.parseGenerateHandler(handlers);
 assert(ph && [...ph.registered].join(",") === "uno,tres" && [...ph.finance].join(",") === "dos", "8.1/10.2 parser comun: registrados y finance", JSON.stringify(ph && [[...ph.registered], [...ph.finance]]));
 assert(P.parseGenerateHandler("sin bloque") === null, "8.1/10.2 sin generate_handler -> null (no medible)");
 assert(P.isTestPath("src/components/__tests__/X.test.tsx") && !P.isTestPath("src/components/X.tsx"), "10.2 los tests no cuentan como llamante");
-assert(P.isCommentLine("  // invoke('x')") && P.isCommentLine(" * invoke('x')") && !P.isCommentLine("await invoke('x')"), "10.1 los comentarios no cuentan como llamada");
+assert(P.isCommentLine("  // invoke('x')") && P.isCommentLine(" * invoke('x')") && !P.isCommentLine("await invoke('x')"), "invokeCallsites: los comentarios no cuentan como llamada");
 // Gate (medidor-11) e icono (medidor-14)
 const g = P.gateSummary([{ cat: 1, name: "a", total: 4, pass: 4, nota: 10 }, { cat: 2, name: "b", total: 0, pass: 0, nota: 0 }, { cat: 3, name: "c", total: 5, pass: 4, nota: 8 }], 9.5);
 assert(!g.allCatsPass && g.laggards.some((l) => l.cat === 2 && l.unmeasured), "gate: categoria sin checks medidos cuenta como laggard", JSON.stringify(g.laggards));
 assert(P.gateSummary([{ cat: 1, name: "a", total: 2, pass: 2, nota: 10 }], 9.5).allCatsPass === true, "gate: todas >= umbral -> pass");
 assert(P.reportIcon({ total: 5, nota: 8 }, 9.5) !== "OK" && P.reportIcon({ total: 5, nota: 9.6 }, 9.5) === "OK", "informe: una 8,0 ya no sale [OK]");
+// 12.5: mediana de los ultimos runs verdes, no un run suelto.
+const runCi = (id, secs) => ({ databaseId: id, createdAt: "2026-11-11T10:00:00Z", updatedAt: new Date(Date.parse("2026-11-11T10:00:00Z") + secs * 1000).toISOString() });
+const ciDur = (runs) => P.ciDurationVerdict({ ok: true, stdout: JSON.stringify(runs), stderr: "" });
+assert(ciDur([runCi(1, 371), runCi(2, 291), runCi(3, 284), runCi(4, 306), runCi(5, 262)]).pass === true, "12.5 un run lento (release) con mediana 291 s -> pass");
+assert(ciDur([runCi(1, 310), runCi(2, 320), runCi(3, 284), runCi(4, 306), runCi(5, 262)]).pass === false, "12.5 mediana 306 s -> fail");
+assert(ciDur([runCi(1, 250), runCi(2, 260)]).pass === false, "12.5 menos de 5 runs -> fail (no medible con ruido)");
+assert(P.ciDurationVerdict({ ok: false, stdout: "", stderr: "gh: command not found" }).skip === true, "12.5 sin gh -> skip");
 // 12.6
 const gh = (o) => ({ ok: true, stdout: JSON.stringify([o]), stderr: "" });
 assert(P.ciMainVerdict(gh({ conclusion: "success", status: "completed" })).pass === true, "12.6 success -> pass");

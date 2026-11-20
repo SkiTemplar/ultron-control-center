@@ -6,7 +6,7 @@ import { join, dirname } from "node:path";
 import * as P from "./predicates.mjs";
 import * as R2 from "./predicates-r2.mjs";
 import { cargoTestCheck } from "./cargo.mjs";
-import { AGENTS_DIR, CC_SRC, CC_TAURI, COCKPIT, HOME, HOOKS_SCRIPTS, REPO, SETTINGS_JSON, SKILLS_DIR, SKILLS_REGISTRY_COCKPIT, ULTRON, cat, fileExists, grepInFiles, importersOf, invokeCallsites, readJSON, run } from "./core.mjs";
+import { CC_SRC, CC_TAURI, COCKPIT, HOME, HOOKS_SCRIPTS, REPO, SETTINGS_JSON, ULTRON, cat, fileExists, grepInFiles, readJSON, run } from "./core.mjs";
 
 // ---------------------------------------------------------------------------
 // CAT 11 — Plugins y MCPs
@@ -245,34 +245,19 @@ cat(12, "Facilidad de implementacion", [
   },
   {
     id: "12.5",
-    desc: "CI real < 300s (duracion del ultimo run success de ci.yml, via gh)",
+    desc: `CI real < ${P.CI_DURATION_LIMIT_S}s (mediana de los ${P.CI_DURATION_RUNS} ultimos runs success de ci.yml, via gh)`,
     auto: true,
     check() {
-      // Mide el RUN REAL (updatedAt - createdAt) del ultimo ci.yml success. El check 12.2 solo
-      // miraba timeout-minutes<=30 (un techo, no la duracion real). Criterio documentado = <300s.
+      // Mide el RUN REAL (updatedAt - createdAt). El check 12.2 solo miraba
+      // timeout-minutes<=30 (un techo, no la duracion real). Desde 2026-11-14,
+      // mediana de varios runs en vez del ultimo: el de un release tarda mas por
+      // las claves de cache y hacia oscilar el check sin cambiar la CI. Criterio
+      // documentado = <300s, sin relajar.
       const r = run(
-        `gh run list --workflow=ci.yml --status success --limit 1 --json databaseId,createdAt,updatedAt 2>&1`,
+        `gh run list --workflow=ci.yml --status success --limit ${P.CI_DURATION_RUNS} --json databaseId,createdAt,updatedAt`,
         { timeout: 30000 }
       );
-      // gh ausente o sin red no es un CI lento: no medible aqui (skip), igual que 12.6.
-      if (!r.ok) {
-        return { skip: true, detail: `gh no disponible o sin red: ${(r.stdout + r.stderr).trim().slice(0, 120)}` };
-      }
-      let arr;
-      try { arr = JSON.parse(r.stdout.trim()); } catch {
-        return { skip: true, detail: `gh devolvio JSON no parseable: ${r.stdout.trim().slice(0, 120)}` };
-      }
-      if (!Array.isArray(arr) || arr.length === 0) {
-        return { pass: false, detail: "0 runs success de ci.yml" };
-      }
-      const run0 = arr[0];
-      const start = new Date(run0.createdAt).getTime();
-      const end = new Date(run0.updatedAt).getTime();
-      if (isNaN(start) || isNaN(end) || end < start) {
-        return { pass: false, detail: `timestamps invalidos: ${run0.createdAt} / ${run0.updatedAt}` };
-      }
-      const secs = Math.round((end - start) / 1000);
-      return { pass: secs < 300, detail: `CI run #${run0.databaseId} duro ${secs}s (limite 300s)` };
+      return P.ciDurationVerdict({ ok: r.ok, stdout: r.stdout, stderr: r.stderr });
     },
   },
   {
@@ -329,47 +314,6 @@ cat(13, "Mejora de prompts", [
     },
   },
   {
-    id: "13.3",
-    desc: "skills-registry.json (cockpit) sin fantasmas (skills o agentes existen en ~/.claude/)",
-    auto: true,
-    check() {
-      const reg = readJSON(SKILLS_REGISTRY_COCKPIT);
-      if (!reg) return { pass: false, detail: "skills-registry.json no encontrado" };
-      if (!Array.isArray(reg) || reg.length === 0) return { skip: true, detail: "skills-registry.json vacio: nada que resolver" };
-      const phantoms = [];
-      // Skills con ":" son de plugins (commit-commands:commit) — se verifican por plugin activo
-      const settings = readJSON(SETTINGS_JSON) ?? {};
-      const enabledPlugins = Object.keys(settings.enabledPlugins ?? {}).filter((k) => settings.enabledPlugins[k] === true);
-      for (const entry of reg) {
-        const rawId = entry.id ?? entry.name;
-        if (!rawId) continue;
-        if (rawId.includes(":")) {
-          // Formato "plugin-name:skill-name" — verifica que el plugin este activo en settings.json
-          const pluginName = rawId.split(":")[0];
-          // Busca si algun enabledPlugin empieza por el nombre del plugin
-          const pluginActive = enabledPlugins.some((p) => p.startsWith(pluginName));
-          if (!pluginActive) phantoms.push(rawId);
-          continue;
-        }
-        // Verifica en ~/.claude/skills/ (activo o .disabled) O ~/.claude/agents/
-        const checks = [
-          join(SKILLS_DIR, rawId),
-          join(SKILLS_DIR, "_disabled", rawId),
-          join(SKILLS_DIR, rawId + ".disabled"),
-          join(AGENTS_DIR, `${rawId}.md`),
-          join(AGENTS_DIR, `${rawId}.md.disabled`),
-        ];
-        if (!checks.some((p) => existsSync(p))) {
-          phantoms.push(rawId);
-        }
-      }
-      return {
-        pass: phantoms.length === 0,
-        detail: phantoms.length === 0 ? `0 fantasmas en ${reg.length} entries` : `${phantoms.length} fantasmas: ${phantoms.slice(0, 5).join(", ")}`,
-      };
-    },
-  },
-  {
     id: "13.4",
     desc: "Routing propone GRUPO y optimiza por paso — verificacion manual",
     auto: false,
@@ -409,25 +353,8 @@ cat(14, "Backend/UI", [
       return { pass: imported && rendered, detail: `Usage.tsx existe, importado=${imported} renderizado=${rendered} en App.tsx` };
     },
   },
-  {
-    id: "14.3",
-    desc: "orchestrate_prompt con boton/panel montado en la UI: el .tsx que hace el invoke real lo importa otro componente de produccion",
-    auto: true,
-    check() {
-      // Antes era el mismo grep que 10.1 (y contaba comentarios): ahora 10.1 mide
-      // el invoke y 14.3 que su componente este montado (medidor-5).
-      const comps = [...new Set(invokeCallsites("orchestrate_prompt").filter((m) => m.file.endsWith(".tsx")).map((m) => m.file))];
-      if (comps.length === 0) return { pass: false, detail: "0 componentes .tsx con invoke real de orchestrate_prompt" };
-      const mounted = comps.filter((f) => {
-        const base = f.split(/[/\\]/).pop().replace(/\.tsx$/, "");
-        return importersOf(base).some((m) => m.file !== f);
-      });
-      return {
-        pass: mounted.length > 0,
-        detail: `${mounted.length}/${comps.length} componente(s) con el invoke montados: ${comps.map((f) => f.split(/[/\\]/).pop()).join(", ")}`,
-      };
-    },
-  },
+  // 14.3 (el panel de previsualizacion de la orquestacion montado en la UI)
+  // retirado el 2026-11-15 con el comando que invocaba (ver 10.1 en cats-08-10.mjs).
   {
     id: "14.4",
     desc: "Panel Git funciona (verificacion visual)",

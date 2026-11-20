@@ -2,8 +2,8 @@
 // cockpit/statusline.js — statusline custom de Claude Code (card vy7sve).
 //
 // Pinta: ⚡ PROYECTO (color estable por nombre) · rama git · modelo · 🎭 tono
-// activo (el último que el orchestrate detectó para ESTA sesión, leído del
-// log orchestrate.jsonl — misma fuente que el Live Session Monitor).
+// activo (el último que memory-orchestrate detectó para ESTA sesión, leído de
+// logs/session-tone.jsonl).
 //
 // Contrato Claude Code: recibe JSON por stdin (model.display_name,
 // workspace.current_dir, session_id, …) y la PRIMERA línea de stdout es la
@@ -19,9 +19,6 @@ const { execFileSync } = require('child_process');
 
 // Overrides SOLO para test (nunca en producción): permiten probar la lectura
 // del tono sin depender del log real de la sesión viva.
-const ORCH_LOG =
-  process.env.ULTRON_STATUSLINE_ORCH_LOG ||
-  path.join(os.homedir(), '.claude', 'logs', 'orchestrate.jsonl');
 const SESSION_TONE_LOG =
   process.env.ULTRON_SESSION_TONE_LOG ||
   path.join(os.homedir(), '.claude', 'logs', 'session-tone.jsonl');
@@ -102,15 +99,13 @@ function lastToneIn(file, sessionId) {
 }
 
 /**
- * Último tono de esta sesión. El modo ligero de memory-orchestrate (el de por
- * defecto desde 2026-09-28) lo apunta en session-tone.jsonl; el modo completo,
- * en orchestrate.jsonl.
+ * Último tono de esta sesión: memory-orchestrate lo apunta en
+ * session-tone.jsonl. orchestrate.jsonl ya no se lee: era el log del modo
+ * completo del hook, retirado el 2026-11-15.
  */
 function activeTone(sessionId) {
   if (!sessionId) return '';
-  const light = lastToneIn(SESSION_TONE_LOG, sessionId);
-  if (light !== undefined) return light;
-  return lastToneIn(ORCH_LOG, sessionId) || '';
+  return lastToneIn(SESSION_TONE_LOG, sessionId) || '';
 }
 
 /** % redondeado o null (payload trae used_percentage pre-calculado). */

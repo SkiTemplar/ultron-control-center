@@ -627,6 +627,11 @@ pub(crate) fn delegations_ledger_path() -> Result<PathBuf, String> {
     Ok(router_root()?.join("cockpit").join("delegations.jsonl"))
 }
 
+/// Un directorio por run de `scripts/delegate.mjs` (`meta.json`, `result.json`).
+pub(crate) fn delegations_dir() -> Result<PathBuf, String> {
+    Ok(router_root()?.join(".tmp").join("delegations"))
+}
+
 /// `scripts/delegate.mjs` del repo de ULTRON.
 pub(crate) fn delegate_script_path() -> Result<PathBuf, String> {
     Ok(router_root()?.join("scripts").join("delegate.mjs"))

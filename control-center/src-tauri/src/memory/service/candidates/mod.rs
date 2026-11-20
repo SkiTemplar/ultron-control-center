@@ -3,7 +3,7 @@
 // Troceado 2026-09-10 (cat7.3: el fichero único pasaba de 800 líneas). Mismo
 // comportamiento y mismas firmas públicas; solo cambia el reparto:
 //   dedupe       — dedupe exacto (content_hash) + near-dup Jaccard (FTS).
-//   paraphrase   — gate anti-paráfrasis del write-path (título + coseno E5).
+//   paraphrase   — gate anti-paráfrasis del write-path (título normalizado).
 //   discard_log  — rastro jsonl de lo que el write-path descarta.
 //   intake       — create_candidate / list_pending_candidates.
 //   reverify     — reverify_candidate (drain --auto) + persistencia condicional.

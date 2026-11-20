@@ -60,6 +60,9 @@ fn es_sid_simple(sid: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
 }
 
+/// `message.model` de los mensajes que escribe el CLI y no un modelo.
+const MODELO_SINTETICO: &str = "<synthetic>";
+
 /// Estadísticas acumuladas de un transcript de subagente.
 #[derive(Default, Clone)]
 pub struct AgentStats {
@@ -67,6 +70,8 @@ pub struct AgentStats {
     message_ids: IdsRecientes,
     turns: u32,
     pub tokens: u64,
+    /// Modelo del último mensaje real del asistente (`message.model`).
+    pub model: Option<String>,
     pub started_at: Option<String>,
     pub ended: bool,
 }
@@ -90,6 +95,7 @@ impl AgentStats {
             _ => return,
         }
         let Some(msg) = v.get("message") else { return };
+        self.anotar_modelo(msg);
         let id = msg.get("id").and_then(Value::as_str).unwrap_or("");
         if self.message_ids.insertar(id) {
             self.turns = self.turns.saturating_add(1);
@@ -99,6 +105,17 @@ impl AgentStats {
                 .unwrap_or(0);
         }
         self.ended = msg.get("stop_reason").and_then(Value::as_str) == Some("end_turn");
+    }
+
+    /// Los avisos sintéticos del CLI (`<synthetic>`) no son un modelo.
+    fn anotar_modelo(&mut self, msg: &Value) {
+        let Some(model) = msg.get("model").and_then(Value::as_str) else {
+            return;
+        };
+        if model.is_empty() || model == MODELO_SINTETICO || self.model.as_deref() == Some(model) {
+            return;
+        }
+        self.model = Some(model.to_string());
     }
 
     pub fn turns(&self) -> u32 {
@@ -296,6 +313,7 @@ pub fn node_from(
         started_at: stats.started_at.clone().unwrap_or_default(),
         turns: stats.turns(),
         tokens: stats.tokens,
+        model: stats.model.clone(),
         max_turns: max_turns(&meta.0),
         workflow_run: workflow_run_de(path),
         last_write_ms: ultima_escritura_ms(path),
@@ -394,6 +412,9 @@ pub fn merge(disk: Vec<AgentNode>, live: &HashMap<String, AgentNode>) -> Vec<Age
             if node.max_turns.is_none() {
                 node.max_turns = l.max_turns;
             }
+            if node.model.is_none() {
+                node.model = l.model.clone();
+            }
         }
     }
     let known: HashSet<String> = out.iter().map(|n| n.agent_id.clone()).collect();
@@ -421,6 +442,7 @@ mod tests {
         }
         assert_eq!(st.turns(), 2);
         assert_eq!(st.tokens, 40 + 25);
+        assert_eq!(st.model.as_deref(), Some("modelo-demo"));
         assert!(st.ended);
         assert_eq!(st.started_at.as_deref(), Some("2026-01-02T10:00:00.000Z"));
     }
@@ -439,6 +461,22 @@ mod tests {
         assert_eq!(st.tokens as usize, n);
     }
 
+    #[test]
+    fn el_modelo_es_el_ultimo_real_y_un_aviso_sintetico_no_lo_pisa() {
+        let linea = |id: &str, model: &str| {
+            serde_json::json!({"type":"assistant","message":{"id":id,"model":model,
+                "usage":{"output_tokens":1}}})
+        };
+        let mut st = AgentStats::default();
+        assert_eq!(st.model, None, "sin mensajes no se inventa un modelo");
+        st.feed(&linea("m1", "claude-opus-5-5"));
+        st.feed(&linea("m2", "claude-sonnet-5-5"));
+        assert_eq!(st.model.as_deref(), Some("claude-sonnet-5-5"));
+        st.feed(&linea("m3", "<synthetic>"));
+        st.feed(&serde_json::json!({"type":"assistant","message":{"id":"m4"}}));
+        assert_eq!(st.model.as_deref(), Some("claude-sonnet-5-5"));
+    }
+
     fn nodo(id: &str, status: &str, started_at: &str) -> AgentNode {
         AgentNode {
             agent_id: id.into(),
@@ -450,6 +488,7 @@ mod tests {
             turns: 0,
             tokens: 0,
             max_turns: None,
+            model: None,
             workflow_run: None,
             last_write_ms: 0,
             ended_at_ms: 0,
@@ -588,6 +627,7 @@ mod tests {
             turns: 0,
             tokens: 0,
             max_turns: None,
+            model: None,
             workflow_run: None,
             last_write_ms: 0,
             ended_at_ms: 0,
@@ -714,6 +754,7 @@ maxTurns: 3
             turns: 1,
             tokens: 1,
             max_turns: None,
+            model: None,
             workflow_run: None,
             last_write_ms: 0,
             ended_at_ms: 0,

@@ -152,7 +152,7 @@ export function buildPrompt({ memories, files, previous, seed = null }) {
   const marcadas = [];
   for (const b of previous?.bloques || []) {
     for (const a of b.afirmaciones || []) {
-      if (a.estado === 'confirmed') marcadas.push(`CONFIRMADA (mantener): ${a.texto}`);
+      if (a.estado === 'confirmed') marcadas.push(`CONFIRMADA (se conserva sola; no la repitas ni la reformules): ${a.texto}`);
       if (a.estado === 'discarded') marcadas.push(`DESCARTADA (no volver a incluir): ${a.texto}`);
     }
   }
@@ -197,6 +197,33 @@ export function claimId(texto) {
   return crypto.createHash('sha1').update(String(texto).trim().toLowerCase()).digest('hex').slice(0, 10);
 }
 
+const NEAR_DUPLICATE_JACCARD = 0.6;
+
+function claimWords(texto) {
+  const words = String(texto)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3);
+  return new Set(words);
+}
+
+/**
+ * True si dos afirmaciones dicen lo mismo con otras palabras (Jaccard de
+ * palabras >= 0,6). El id es el hash del texto exacto, así que una
+ * reformulación semanal de una afirmación confirmada entraba como nueva y el
+ * retrato acababa con cada hecho dos veces (retrato del 2026-11-09).
+ */
+export function isNearDuplicate(a, b) {
+  const wa = claimWords(a);
+  const wb = claimWords(b);
+  if (!wa.size || !wb.size) return false;
+  let common = 0;
+  for (const w of wa) if (wb.has(w)) common++;
+  return common / (wa.size + wb.size - common) >= NEAR_DUPLICATE_JACCARD;
+}
+
 /** Extrae el primer objeto JSON de la respuesta del modelo. */
 export function parseModelJson(text) {
   const s = String(text || '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
@@ -222,11 +249,17 @@ export function mergePortrait(raw, previous, meta) {
     const src = (raw?.bloques || []).find((b) => b && b.id === id);
     const seen = new Set();
     const afirmaciones = [];
+    const marked = [...prevClaims.values()].filter(
+      (p) => p.bloque === id && (p.estado === 'confirmed' || p.estado === 'discarded'),
+    );
     for (const a of src?.afirmaciones || []) {
       const texto = String(a?.texto || '').trim();
       if (!texto) continue;
       const cid = claimId(texto);
       if (discarded.has(cid) || seen.has(cid)) continue;
+      // Una reformulación de algo ya confirmado o descartado no entra como nueva.
+      const reworded = marked.find((p) => p.id !== cid && isNearDuplicate(p.texto, texto));
+      if (reworded) continue;
       seen.add(cid);
       const fuentes = Array.isArray(a.fuentes) ? a.fuentes.map(String).slice(0, 5) : [];
       afirmaciones.push({ id: cid, texto, fuentes, estado: prevClaims.get(cid)?.estado || 'none' });

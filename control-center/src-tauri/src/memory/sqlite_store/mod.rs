@@ -58,9 +58,8 @@ pub use schema::{
 
 pub use items::{
     count_by_source, count_items_by_status, delete_item, find_active_by_content_hash,
-    find_ids_by_prefix, get_item, insert_item, item_exists_by_qdrant_id,
-    list_active_duplicate_groups, list_by_type_status, list_items, list_pinned, query_items,
-    search_items, search_items_typed, touch_injected,
+    find_ids_by_prefix, get_item, insert_item, list_active_duplicate_groups, list_by_type_status,
+    list_items, list_pinned, query_items, search_items, search_items_typed, touch_injected,
 };
 
 pub use events::{insert_event, list_events_for};

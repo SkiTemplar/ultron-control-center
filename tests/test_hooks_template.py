@@ -26,8 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = REPO_ROOT / "templates" / "settings-hooks.json"
 
 # Matches an in-repo script path inside an expanded hook command, e.g.
-#   node {USERPROFILE}/.ultron/hooks/scripts/ensure-qdrant.js
-#   uv run python {USERPROFILE}/.ultron/scripts/cockpit/route_quality_aggregator.py
+#   node {USERPROFILE}/.ultron/hooks/scripts/ensure-codegraph.js
+#   uv run python {USERPROFILE}/.ultron/scripts/cockpit/doctor.py
 _SCRIPT_RE = re.compile(r"\{USERPROFILE\}/\.ultron/([^\s\"]+\.(?:js|py|ps1))")
 
 

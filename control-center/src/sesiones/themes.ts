@@ -2,7 +2,9 @@
 // reglas `:root[data-theme="…"]` y se aplican con `data-theme` en <html>.
 // El test de temas comprueba el contraste AA de cada combinación de texto.
 
-export type ThemeId = "obsidiana" | "vacio" | "fosforo" | "acero" | "grafito" | "medianoche" | "ambar";
+export type ThemeId =
+  | "obsidiana" | "vacio" | "fosforo" | "acero" | "grafito" | "medianoche" | "ambar"
+  | "bosque" | "vino" | "pizarra" | "carbon" | "neon";
 
 export interface ThemeTokens {
   bg: string;
@@ -29,7 +31,7 @@ export interface Theme {
   id: ThemeId;
   label: string;
   description: string;
-  /** Obsoleto desde v0.2: el chat es monoespaciado en todos los temas (E2). */
+  /** Obsoleto desde v0.2: la fuente del chat no depende del tema (ver fonts.ts). */
   chatMono: boolean;
   tokens: ThemeTokens;
 }
@@ -126,6 +128,71 @@ export const THEMES: readonly Theme[] = [
       add: "#1f2a12", del: "#3a1a12",
     },
   },
+  {
+    id: "bosque",
+    label: "Bosque",
+    description: "Verde musgo con acento lima",
+    chatMono: false,
+    tokens: {
+      bg: "#0c120e", panel: "#111913", raised: "#18221a", line: "#28382b", lineSoft: "#1e2b21",
+      fg: "#e1ebdf", muted: "#a3b5a2", faint: "#86998a",
+      accent: "#a8d672", accentFg: "#0f1a05", info: "#8fc4d6",
+      ok: "#7fd19a", warn: "#e3c46a", err: "#ef8473", codex: "#b3b2ff", gemini: "#f0a5d3",
+      add: "#173322", del: "#3a1d1c",
+    },
+  },
+  {
+    id: "vino",
+    label: "Vino",
+    description: "Burdeos oscuro con acento rosa",
+    chatMono: false,
+    tokens: {
+      bg: "#140a0f", panel: "#1b0f15", raised: "#24151d", line: "#3d2531", lineSoft: "#2e1b25",
+      fg: "#f1e2e8", muted: "#c3a4b1", faint: "#a68895",
+      accent: "#f08fb0", accentFg: "#2a0715", info: "#9dbfe8",
+      ok: "#8fd0a2", warn: "#e8c070", err: "#ff8a7a", codex: "#b9b2ff", gemini: "#e3a8f2",
+      add: "#16301f", del: "#45161f",
+    },
+  },
+  {
+    id: "pizarra",
+    label: "Pizarra",
+    description: "Azul pizarra con acento turquesa",
+    chatMono: false,
+    tokens: {
+      bg: "#0f1419", panel: "#141b22", raised: "#1b242d", line: "#2b3845", lineSoft: "#222d38",
+      fg: "#dde6ee", muted: "#9aabb9", faint: "#8193a1",
+      accent: "#4fd1b5", accentFg: "#04201a", info: "#8fb8ee",
+      ok: "#84d39b", warn: "#e6c066", err: "#f08585", codex: "#b0acff", gemini: "#f0a3d6",
+      add: "#143328", del: "#3c2028",
+    },
+  },
+  {
+    id: "carbon",
+    label: "Carbón",
+    description: "Gris carbón neutro con acento coral",
+    chatMono: false,
+    tokens: {
+      bg: "#101010", panel: "#161616", raised: "#1e1e1e", line: "#303030", lineSoft: "#262626",
+      fg: "#e9e6e3", muted: "#aba6a1", faint: "#8f8a85",
+      accent: "#ff8f70", accentFg: "#2a0d04", info: "#93b4e0",
+      ok: "#85c99a", warn: "#e2bd68", err: "#f27f8c", codex: "#b1abff", gemini: "#eea4d6",
+      add: "#18301f", del: "#3d1c22",
+    },
+  },
+  {
+    id: "neon",
+    label: "Neón",
+    description: "Violeta casi negro con magenta y cian",
+    chatMono: false,
+    tokens: {
+      bg: "#0a0612", panel: "#100a1b", raised: "#181027", line: "#2c1f47", lineSoft: "#201636",
+      fg: "#ece6fa", muted: "#b0a5cc", faint: "#9287b0",
+      accent: "#ff7ad9", accentFg: "#2a0522", info: "#7fd6f2",
+      ok: "#7fe0a8", warn: "#f0d06a", err: "#ff8585", codex: "#b5adff", gemini: "#f5b8a8",
+      add: "#12301f", del: "#401a2c",
+    },
+  },
 ];
 
 export const DEFAULT_THEME: ThemeId = "acero";
@@ -173,8 +240,6 @@ export function themeVars(t: Theme): Record<string, string> {
   vars["--opencode-soft"] = `${t.tokens.info}1f`;
   vars["--warn-soft"] = `${t.tokens.warn}14`;
   vars["--err-soft"] = `${t.tokens.err}14`;
-  // E2: estética de terminal en los cuatro temas; el chat entero va en mono.
-  vars["--f-chat"] = "var(--f-mono)";
   return vars;
 }
 

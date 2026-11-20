@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::normalise::normalise_provider;
-use super::registry::{atomic_write, projects_lock, slugify};
+use super::registry::{atomic_write, lock_registry, slugify};
 use super::types::ProjectInfo;
 
 /// Profundidad bajo cada raíz. `<asignatura>/codigo/<proyecto>` son 3 niveles;
@@ -111,7 +111,7 @@ fn normalize_path(path: &str) -> String {
     path.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
 
-/// `fnmatch` de Python, como lo aplica `scan_projects.py` en Windows: `*` cruza
+/// `fnmatch` de Python, como lo aplicaba `scan_projects.py` (retirado el 2026-11-14) en Windows: `*` cruza
 /// separadores, `?` es un carácter, sin distinguir mayúsculas ni tipo de barra.
 fn glob_matches(pattern: &str, text: &str) -> bool {
     let pattern: Vec<char> = normalize_path(pattern).chars().collect();
@@ -241,7 +241,7 @@ fn discover(
     found
 }
 
-/// Id libre con la misma cadena que `ensure-project.js` y `scan_projects.py`:
+/// Id libre con la misma cadena que `ensure-project.js` (y que el antiguo `scan_projects.py`):
 /// base, base con el nombre de la carpeta madre, base numerada.
 fn free_id(found: &Discovered, taken: &HashSet<String>) -> String {
     let base = match slugify(&found.name) {
@@ -267,8 +267,8 @@ fn free_id(found: &Discovered, taken: &HashSet<String>) -> String {
         .unwrap_or(base)
 }
 
-/// Entrada del registro. `status: "manual"` a propósito: `scan_projects.py`
-/// borra las `auto-detected` que no encuentra, y estas raíces no son las suyas.
+/// Entrada del registro. `status: "manual"` a propósito: el antiguo `scan_projects.py` (retirado)
+/// borraba las `auto-detected` que no encuentra, y estas raíces no son las suyas.
 /// Bajo una raíz de asignaturas va en modo socrático `uni`, como en el creador.
 fn registry_entry(found: &Discovered, id: &str, today: &str) -> serde_json::Value {
     let mut entry = serde_json::json!({
@@ -316,9 +316,7 @@ fn register_discovered(
     if found.is_empty() {
         return Ok(Vec::new());
     }
-    let _guard = projects_lock()
-        .lock()
-        .map_err(|e| format!("projects write lock poisoned: {e}"))?;
+    let _guard = lock_registry(registry)?;
     let mut root = read_registry(registry)?;
     let registered = registered_paths(&root);
     let projects = root
@@ -549,6 +547,30 @@ mod tests {
             antes,
             "sin altas no se escribe"
         );
+    }
+
+    /// Caso negativo del hallazgo #12 (auditoría 2026-11-08): si otro proceso
+    /// (un CLI de `scripts/`) tiene `projects.json.lock`, el alta no escribe
+    /// sin cerrojo: espera el plazo, devuelve un error explícito y deja el
+    /// registro intacto. Sin el lock de fichero, el escaneo escribía igual.
+    #[test]
+    fn con_el_registro_bloqueado_por_otro_proceso_no_escribe() {
+        let fx = fixture(serde_json::json!([]));
+        fx.project("Nueva", ".git");
+        let antes = fs::read(&fx.registry).expect("leer");
+        let lock = crate::file_lock::lock_path_for(&fx.registry);
+        fs::write(&lock, r#"{"pid":0,"token":"script-node"}"#).expect("lock ajeno");
+
+        let err = scan_roots_into(&fx.registry, &[fx.root("personal")], &Exclusions::default())
+            .expect_err("no debe registrar con el lock de otro proceso");
+
+        assert!(err.contains("projects.json bloqueado"), "{err}");
+        assert_eq!(
+            fs::read(&fx.registry).expect("leer"),
+            antes,
+            "registro intacto"
+        );
+        assert!(lock.exists(), "el lock ajeno sigue en disco");
     }
 
     #[test]

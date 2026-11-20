@@ -97,11 +97,17 @@ export function Settings() {
   }, []);
 
   async function save() {
-    if (!draft) return;
+    if (!draft || !snapshot) return;
     setSaving(true);
     setSaveResult(null);
     try {
-      const r = (await invoke("settings_save", { content: draft })) as SettingsSaveResult;
+      // Concurrencia optimista: si settings.json cambió en disco desde la
+      // lectura, el backend rechaza el guardado y el error se muestra abajo; el
+      // borrador se conserva para que no se pierdan los cambios.
+      const r = (await invoke("settings_save", {
+        content: draft,
+        expectedHash: snapshot.content_hash,
+      })) as SettingsSaveResult;
       setSaveResult(r);
       // reload to pick up server-side normalization
       await load();

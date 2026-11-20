@@ -13,7 +13,7 @@ param(
 # 4 dias de retraso en proyectos que se retoman poco. ASCII puro (compat PS
 # 5.1). Sin admin: corre como usuario.
 #
-# Patron identico a scripts/qdrant/install-qdrant-watchdog.ps1: wscript + VBS
+# Patron del antiguo watchdog de Qdrant (retirado 2026-11-14): wscript + VBS
 # para vbHide (cero flash de consola).
 #
 # Uso:
