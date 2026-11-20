@@ -293,6 +293,12 @@ pub(super) fn comando_inicio(n: &mut EstadoSesion, run_id: &str, nombre: &str, a
     }
 }
 
+/// Comandos de tipo prompt que la CLI resuelve sin abrir turno: `/compact`
+/// resume la conversación sin `UserPromptSubmit` y su `commandEnd` llega al
+/// terminar. Esperar el turno daba «El comando no abrió turno» tras cada
+/// compactación correcta.
+const PROMPT_SIN_TURNO: &[&str] = &["compact"];
+
 pub(super) fn comando_fin(
     n: &mut EstadoSesion,
     run_id: &str,
@@ -325,7 +331,7 @@ pub(super) fn comando_fin(
     if !mismo {
         return;
     }
-    if *kind == CommandKind::Prompt && !interceptado {
+    if *kind == CommandKind::Prompt && !interceptado && !PROMPT_SIN_TURNO.contains(&nm.as_str()) {
         n.plazo_comando = Some(ahora);
         return;
     }

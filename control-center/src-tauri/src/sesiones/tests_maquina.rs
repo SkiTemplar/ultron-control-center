@@ -437,12 +437,12 @@ fn comando_prompt_sin_turno_espera_15_s() {
     let mut h = H::idle(2);
     h.s(Senal::ComandoInicio {
         run_id: "r1".into(),
-        nombre: "compact".into(),
+        nombre: "code-review".into(),
     })
     .s(pantalla(P::Prompt))
     .s(Senal::ComandoFin {
         run_id: "r1".into(),
-        nombre: "compact".into(),
+        nombre: "code-review".into(),
         interceptado: false,
     });
     h.avanza(3_000);
@@ -450,6 +450,29 @@ fn comando_prompt_sin_turno_espera_15_s() {
     h.avanza(12_000);
     assert_eq!(h.e.status, S::Idle, "15 s con prompt");
     assert!(h.hay(|e| matches!(e, Efecto::Aviso { .. })));
+}
+
+/// `/compact` no abre turno: su `commandEnd` (al terminar de compactar) cierra
+/// el comando sin esperar un `UserPromptSubmit` ni avisar.
+#[test]
+fn compact_cierra_con_su_command_end_sin_aviso() {
+    let mut h = H::idle(2);
+    h.s(Senal::ComandoInicio {
+        run_id: "r1".into(),
+        nombre: "/compact".into(),
+    })
+    .s(pantalla(P::Prompt))
+    .s(Senal::ComandoFin {
+        run_id: "r1".into(),
+        nombre: "/compact".into(),
+        interceptado: false,
+    });
+    assert_eq!(h.e.status, S::Idle, "sin plazo de turno");
+    h.avanza(20_000);
+    assert!(
+        !h.hay(|e| matches!(e, Efecto::Aviso { .. })),
+        "sin «El comando no abrió turno»"
+    );
 }
 
 #[test]

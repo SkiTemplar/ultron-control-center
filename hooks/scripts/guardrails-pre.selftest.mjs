@@ -211,6 +211,32 @@ comprueba('push normal pasa', bash('git push -u origin main'), 'pasa');
 comprueba('push forzado pide confirmacion', bash('git push --force origin main'), 'ask/force-push');
 comprueba('push -f pide confirmacion', bash('git push -f'), 'ask/force-push');
 
+// --- home-scratch (2026-11-20) -------------------------------------------------
+{
+  const HOME_FALSO = String.raw`C:\Users\prueba`;
+  const existentes = new Set(['.ultron', 'PERSONAL', '.scratch']);
+  const existe = (p) => existentes.has(path.basename(p));
+  const hs = (cmd, dialectos = ['bash']) =>
+    (g.reglaHomeScratch(cmd, dialectos, HOME_FALSO, existe) ? 'avisa' : 'pasa');
+  comprueba('mkdir de carpeta nueva en el home (ruta MSYS) avisa',
+    hs('mkdir -p /c/Users/prueba/tmp-x && cd /c/Users/prueba/tmp-x'), 'avisa');
+  comprueba('mkdir ~/nueva avisa', hs('mkdir ~/scratch_f02'), 'avisa');
+  comprueba('mkdir "$HOME/nueva/sub" avisa', hs('mkdir -p "$HOME/tilde-e2e/shots"'), 'avisa');
+  comprueba('mkdir C:/Users/.../nueva avisa', hs('mkdir -p C:/Users/Prueba/work'), 'avisa');
+  comprueba('New-Item -ItemType Directory en el home avisa',
+    hs(String.raw`New-Item -ItemType Directory -Path 'C:\Users\prueba\tmp_bench'`, ['ps']), 'avisa');
+  comprueba('mkdir bajo una carpeta que ya existe pasa', hs('mkdir -p ~/.ultron/.scratch/x'), 'pasa');
+  comprueba('mkdir en ~/.scratch pasa', hs('mkdir -p /c/Users/prueba/.scratch/contrato'), 'pasa');
+  comprueba('mkdir dentro de un proyecto pasa', hs('mkdir -p /c/Users/prueba/PERSONAL/p/.scratch'), 'pasa');
+  comprueba('mkdir relativo pasa (limite declarado)', hs('mkdir -p tmp-x'), 'pasa');
+  comprueba('mkdir fuera del home pasa', hs('mkdir -p /tmp/x /c/Users/prueba2/y'), 'pasa');
+  comprueba('New-Item de fichero en el home pasa', hs('New-Item -ItemType File -Path ~/nota.txt', ['ps']), 'pasa');
+  comprueba('nombrar mkdir en un texto pasa', hs('echo "mkdir ~/tmp-x"'), 'pasa');
+  comprueba('segmento con variable no se evalua', hs('mkdir -p ~/$dir/x'), 'pasa');
+  comprueba('classify devuelve ask/home-scratch',
+    bash(`mkdir -p "${os.homedir().replace(/\\/g, '/')}/zz-guardrails-no-existe-${process.pid}"`), 'ask/home-scratch');
+}
+
 // --- variantes triviales (hooks-3, auditoria 2026-10-23) ----------------------
 // Hasta esta version solo se detectaba la forma canonica de cada regla: un
 // envoltorio de shell, una opcion global de git o una bandera equivalente

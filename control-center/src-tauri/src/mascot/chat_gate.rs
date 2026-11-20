@@ -10,20 +10,30 @@
 //   * falla cerrado: si el puente no responde, Claude Code bloquea la
 //     herramienta en vez de ejecutarla (medido con claude 2.1.302).
 //
-// Qué pide confirmación en el bocadillo (approve.rs):
-//   * comandos destructivos (los mismos patrones que el MCP), ejecutar
-//     scripts o programas y escribir en rutas de arranque o de
-//     configuración (Bash, PowerShell, Monitor, Write, Edit, type_text);
-//   * lo que se teclea con el MCP, acumulado hasta el Enter, para que
+// Qué reconoce el freno. Lo rutinario (`ROUTINE`) se aprueba solo desde el
+// 2026-11-20; lo demás pide confirmación en el bocadillo (approve.rs).
+// Rutinario:
+//   * ejecutar scripts o programas;
+//   * sobrescribir o mover ficheros por shell (`>`, Set-Content, Out-File,
+//     mv, Move-Item, Copy-Item -Force…);
+//   * cualquier acción local (comando, escritura, clic, teclado) con el turno
+//     marcado.
+// Con esto, un turno que leyó una página o un fichero con instrucciones
+// inyectadas puede ejecutar un script sin tarjeta: lo que sigue frenado es lo
+// de abajo, reconocido solo por el texto de la acción.
+// Con confirmación:
+//   * comandos destructivos (los mismos patrones que el MCP) y tocar rutas
+//     de arranque o de configuración (Bash, PowerShell, Monitor, Write, Edit,
+//     type_text), aunque el mismo comando tenga además un motivo rutinario;
+//   * lo que se teclea con el MCP se acumula hasta el Enter, para que
 //     trocear un comando en varios type_text no lo esconda;
-//   * cualquier acción (comando, escritura, clic, teclado) y también otro
-//     WebFetch o WebSearch con el turno marcado. Marcan el turno lo que trae
-//     contenido de fuera: WebFetch, WebSearch, un comando de red (curl, wget,
-//     iwr, irm…), Read, NotebookRead, Grep, ReadMcpResourceTool y los comandos
-//     que leen ficheros (cat, Get-Content, grep…). Lo que traen puede llevar
-//     instrucciones inyectadas, y la URL de un WebFetch puede sacar lo leído.
-//     Leer y mirar la pantalla siguen sin preguntar con el turno marcado: lo
-//     que frena la fuga es la salida, no la lectura;
+//   * salir a la red con el turno marcado: otro WebFetch o WebSearch, o un
+//     comando de red (curl, wget, iwr, irm…). Marcan el turno lo que trae
+//     contenido de fuera: WebFetch, WebSearch, un comando de red, Read,
+//     NotebookRead, Grep, ReadMcpResourceTool y los comandos que leen
+//     ficheros (cat, Get-Content, grep…). Lo que traen puede llevar
+//     instrucciones inyectadas, y una URL puede sacar lo leído. Leer y mirar
+//     la pantalla siguen sin preguntar con el turno marcado;
 //   * enviar datos a la red aunque el turno esté limpio (curl -d, -F o -T,
 //     Invoke-RestMethod -Body, scp, nc…);
 //   * credenciales (secrets.rs): `.env`, `.claude.json`, claves, tokens de CLI
@@ -33,8 +43,6 @@
 //     su cabecera) o que lea los ficheros de su token, y la lectura de esos
 //     ficheros con Read, Grep o Glob: con el token se teclea y se clica sin
 //     pasar por este freno;
-//   * sobrescribir o mover ficheros por shell (`>`, Set-Content, Out-File,
-//     mv, Move-Item, Copy-Item -Force…);
 //   * cualquier herramienta desconocida o de un MCP de terceros.
 // Lo que no reconoce como peligroso sigue su camino normal (lista
 // `--allowedTools` y puerta `approve_tool_use` del MCP). Solo lee el texto de
@@ -67,6 +75,7 @@ use serde_json::Value;
 
 use patterns::{
     command_reason, fetches_network, reads_file, sensitive_write, touches_bridge, BRIDGE,
+    OVERWRITE, RUN_SCRIPT,
 };
 use secrets::{secret_path, SECRET};
 
@@ -131,6 +140,16 @@ fn clip(s: &str) -> String {
 
 const AFTER_WEB: &str = "actuar después de leer la web o un fichero";
 const LEAK: &str = "salir a la web después de leer la web o un fichero";
+
+/// Motivos rutinarios: el freno los aprueba sin tarjeta (decisión del usuario,
+/// 2026-11-20: confirmar cada acción tras una lectura era constante). Lista
+/// cerrada: un motivo que no esté aquí pregunta.
+const ROUTINE: &[&str] = &[AFTER_WEB, RUN_SCRIPT, OVERWRITE];
+
+/// ¿Se aprueba `reason` sin preguntar al usuario?
+pub fn is_routine(reason: &str) -> bool {
+    ROUTINE.contains(&reason)
+}
 
 // ---------------------------------------------------------------------------
 // Clasificación (pura)
@@ -228,6 +247,20 @@ fn written_text(input: &Value) -> &str {
         .unwrap_or("")
 }
 
+/// Motivo para un texto que se ejecuta (comando o lo tecleado). Con el turno
+/// marcado, un comando de red es una salida a la web y manda sobre lo
+/// rutinario, que se aprobaría solo.
+fn exec_reason(text: &str, tainted: bool) -> Option<&'static str> {
+    let why = command_reason(text);
+    if why.is_some_and(|w| !is_routine(w)) {
+        return why;
+    }
+    if tainted && fetches_network(text) {
+        return Some(LEAK);
+    }
+    why.or(tainted.then_some(AFTER_WEB))
+}
+
 fn decide_write(tool: &str, input: &Value, tainted: bool) -> Step {
     let path = match str_field(input, "file_path") {
         "" => str_field(input, "notebook_path"),
@@ -270,9 +303,8 @@ pub fn decide(tool: &str, input: &Value, tainted: bool, typed: &str) -> Step {
         }
         "Bash" | "PowerShell" | "Monitor" => {
             let command = str_field(input, "command");
-            let step = match command_reason(command) {
+            let step = match exec_reason(command, tainted) {
                 Some(why) => Step::ask(why, command),
-                None if tainted => Step::ask(AFTER_WEB, command),
                 None => Step::pass(),
             };
             // curl, wget, cat, Get-Content… traen contenido igual que WebFetch.
@@ -308,7 +340,7 @@ fn decide_desktop(action: &str, input: &Value, tainted: bool, typed: &str) -> St
             let text = str_field(input, "text");
             let pending = tail(&format!("{typed}{text}"), MAX_TYPED);
             // Un salto de línea dentro del texto ya es un Enter.
-            let reason = command_reason(&pending).or(tainted.then_some(AFTER_WEB));
+            let reason = exec_reason(&pending, tainted);
             let mut step = match reason {
                 Some(why) => Step::ask(why, &format!("teclear: {pending}")),
                 None => Step::pass(),
@@ -330,7 +362,7 @@ fn decide_desktop(action: &str, input: &Value, tainted: bool, typed: &str) -> St
                 };
             }
             // Enter: se ejecuta lo tecleado hasta ahora.
-            let reason = command_reason(typed).or(tainted.then_some(AFTER_WEB));
+            let reason = exec_reason(typed, tainted);
             let mut step = match reason {
                 Some(why) => Step::ask(why, &format!("Enter tras teclear: {typed}")),
                 None => Step::pass(),

@@ -17,6 +17,11 @@
  *                                   --allow-dangerously-skip-permissions).
  *   force-push       (Bash)   ASK   push forzado (rescribe historia publicada):
  *                                   --force*, --mirror, -f y refspec `+rama`.
+ *   home-scratch     (Bash)   ASK   mkdir / New-Item de una carpeta nueva en la
+ *                                   raiz del home (el temporal va en
+ *                                   `<proyecto>/.scratch/`). Solo rutas absolutas
+ *                                   o con `~`/`$HOME`: un `mkdir x` relativo con
+ *                                   cwd en el home no se ve (limite declarado).
  *
  * DOBLE INTENTO (2026-11-16): con `permission_mode: 'bypassPermissions'` en la
  * entrada, un ASK no pide confirmacion. El primer intento sale en DENY con la
@@ -482,6 +487,56 @@ function reglaForcePush(cmd, dialectos) {
   return null;
 }
 
+const RE_BIN_MKDIR = /^(?:mkdir|md|new-item|ni)$/;
+const RE_BIN_NEW_ITEM = /^(?:new-item|ni)$/;
+const PREFIJOS_HOME = ['~', '$HOME', '${HOME}', '$env:USERPROFILE', '$USERPROFILE', '%USERPROFILE%'];
+const RE_EXPANSION = /[$*?{}`%]/;
+
+/** Formas en que una ruta puede nombrar el home: `~`, variables y la ruta absoluta (Windows y MSYS). */
+function prefijosDeHome(home) {
+  const h = String(home).replace(/\\/g, '/').replace(/\/+$/, '');
+  const unidad = h.match(/^([A-Za-z]):(\/.*)$/);
+  return unidad ? [...PREFIJOS_HOME, h, `/${unidad[1]}${unidad[2]}`] : [...PREFIJOS_HOME, h];
+}
+
+/**
+ * Primer segmento bajo el home de `arg` si todavia no existe en disco, o null.
+ * Un segmento con expansiones (`$x`, `{a,b}`, comodines) no se evalua.
+ */
+function carpetaNuevaEnHome(arg, home, existe) {
+  const ruta = String(arg).replace(/\\/g, '/');
+  const minus = ruta.toLowerCase();
+  for (const prefijo of prefijosDeHome(home)) {
+    if (!minus.startsWith(`${prefijo.toLowerCase()}/`)) continue;
+    const primero = ruta.slice(prefijo.length + 1).split('/')[0];
+    if (!primero || RE_EXPANSION.test(primero)) return null;
+    return existe(path.join(home, primero)) ? null : primero;
+  }
+  return null;
+}
+
+/**
+ * Las sesiones y los subagentes dejaban su trabajo temporal en carpetas nuevas
+ * de la raiz del home (`mkdir -p /c/Users/<u>/tmp-x`): ~530 MB en 25 carpetas
+ * medidos el 2026-11-20. Crear una carpeta que aun no existe justo bajo el home
+ * pide confirmacion. `home` y `existe` son inyectables para el selftest.
+ */
+function reglaHomeScratch(cmd, dialectos, home = HOME, existe = fs.existsSync) {
+  for (const { bin, resto } of comandosDe(cmd, dialectos)) {
+    if (!RE_BIN_MKDIR.test(bin)) continue;
+    const args = palabras(resto);
+    if (RE_BIN_NEW_ITEM.test(bin) && !args.some((a) => /^dir/i.test(a))) continue;
+    for (const arg of args) {
+      const nueva = carpetaNuevaEnHome(arg, home, existe);
+      if (nueva) {
+        return `crea la carpeta "${nueva}" en la raiz del home: el trabajo temporal va en ` +
+          '<proyecto>/.scratch/ (sesion del home: ~/.scratch/) y un proyecto nuevo se crea con project-create.mjs';
+      }
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Clasificador
 // ---------------------------------------------------------------------------
@@ -538,6 +593,8 @@ function clasificaShell(cmd, dialectos) {
   if (commit) return { decision: 'deny', regla: 'commit-format', reason: commit };
   const fpush = reglaForcePush(cmd, dialectos);
   if (fpush) return { decision: 'ask', regla: 'force-push', reason: fpush };
+  const scratch = reglaHomeScratch(cmd, dialectos);
+  if (scratch) return { decision: 'ask', regla: 'home-scratch', reason: scratch };
   return null;
 }
 
@@ -622,6 +679,7 @@ module.exports = {
   reglaCommitFormato,
   reglaSkipPermissions,
   reglaForcePush,
+  reglaHomeScratch,
   mensajeCommit,
 };
 

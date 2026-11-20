@@ -135,7 +135,8 @@ pub(super) const SENSITIVE_PATHS: &[&str] = &[
 ];
 
 pub(super) const BRIDGE: &str = "contactar con el puente local o leer su token";
-const OVERWRITE: &str = "sobrescribir o mover ficheros";
+pub(super) const OVERWRITE: &str = "sobrescribir o mover ficheros";
+pub(super) const RUN_SCRIPT: &str = "ejecutar un script o un programa";
 const NET_SEND_REASON: &str = "enviar datos a la red";
 
 /// Sobrescribir o mover por shell (lo que `>>`, `Add-Content` u `Out-File
@@ -340,18 +341,18 @@ pub(super) fn sensitive_write(path: &str) -> bool {
 }
 
 /// Motivo para pedir confirmación ante un texto que se ejecuta (comando o
-/// lo tecleado antes de un Enter).
+/// lo tecleado antes de un Enter). Lo grave va antes que lo rutinario
+/// (`OVERWRITE`, `RUN_SCRIPT`): un motivo que se aprueba solo no puede tapar
+/// otro que pide confirmación en el mismo comando.
 pub(super) fn command_reason(text: &str) -> Option<&'static str> {
-    if let Some(why) = risky_reason(text) {
-        return Some(why);
-    }
-    if runs_script(text) {
-        return Some("ejecutar un script o un programa");
+    let risky = risky_reason(text);
+    if risky.is_some_and(|why| why != OVERWRITE) {
+        return risky;
     }
     if touches_sensitive_path(text) {
         return Some("tocar el arranque o la configuración");
     }
-    None
+    risky.or_else(|| runs_script(text).then_some(RUN_SCRIPT))
 }
 
 #[cfg(test)]

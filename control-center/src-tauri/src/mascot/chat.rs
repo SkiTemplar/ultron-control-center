@@ -91,12 +91,13 @@ const ACTING_GUIDE: &str = "Puedes actuar en el PC del usuario (Windows 11): \
      Bash en segundo plano. Para ficheros y comandos tienes Bash, Read, \
      Write y Edit. Un freno revisa cada acción y pide confirmación al \
      usuario en el bocadillo cuando reconoce algo destructivo (borrar, git \
-     push, tocar el registro, matar procesos, apagar), la ejecución de \
-     scripts o programas, sobrescribir o mover ficheros por comando, \
+     push, tocar el registro, matar procesos, apagar), \
      escrituras en rutas de arranque o de configuración, llamadas al \
      puente local de ULTRON, credenciales y enviar datos a la red, y, \
      después de traer contenido (WebFetch, WebSearch, curl, Read, Grep, cat…), \
-     cualquier acción y cualquier salida a la web; pero solo lee el texto de la acción y no es una garantía: \
+     cualquier salida a la web. Ejecutar scripts o programas, sobrescribir \
+     o mover ficheros y el resto de acciones se aprueban sin preguntar, así \
+     que nadie más las revisa; el freno solo lee el texto de la acción y no es una garantía: \
      no ejecutes scripts ni \
      escribas en carpetas de arranque, tareas programadas o perfiles de \
      shell salvo que el usuario lo haya pedido, y no rodees el freno \
