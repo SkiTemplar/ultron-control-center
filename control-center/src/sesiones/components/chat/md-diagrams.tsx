@@ -29,20 +29,79 @@ function svgDataUrl(svg: string): string {
   return `data:image/svg+xml;base64,${btoa(bin)}`;
 }
 
-async function svgToPng(svg: string): Promise<string> {
+/** Lado largo del PNG exportado: calidad de impresión sin pasar del límite de canvas de WebView2. */
+export const PNG_LONG_SIDE = 8192;
+/** Tope de área del canvas (px²): por encima, Chromium devuelve un canvas vacío. */
+export const PNG_MAX_AREA = 64_000_000;
+/** `sesiones_save_image` rechaza más de 20 MB; el data URL en base64 ocupa 4/3. */
+const MAX_DATA_URL = Math.floor((20 * 1024 * 1024 * 4) / 3);
+
+const LENGTH = /^\s*([\d.]+)\s*(px|pt)?\s*$/;
+
+function attrLength(v: string | null): number | null {
+  const m = v ? LENGTH.exec(v) : null;
+  if (!m) return null;
+  const n = Number(m[1]) * (m[2] === "pt" ? 4 / 3 : 1);
+  return n > 0 ? n : null;
+}
+
+/**
+ * Tamaño propio del SVG: el `viewBox` manda (Mermaid declara `width="100%"` y sin él el
+ * navegador rasteriza a 300×150); si no hay, `width`/`height` absolutos.
+ */
+export function svgIntrinsicSize(svg: string): { w: number; h: number } | null {
+  const root = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+  if (root.nodeName !== "svg") return null;
+  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) return { w: vb[2], h: vb[3] };
+  const w = attrLength(root.getAttribute("width"));
+  const h = attrLength(root.getAttribute("height"));
+  return w && h ? { w, h } : null;
+}
+
+/** Tamaño del PNG: lado largo `longSide`, sin pasar de `PNG_MAX_AREA`, proporción intacta. */
+export function pngTargetSize(w: number, h: number, longSide = PNG_LONG_SIDE): { w: number; h: number } {
+  const byLong = longSide / Math.max(w, h);
+  const byArea = Math.sqrt(PNG_MAX_AREA / (w * h));
+  const scale = Math.min(byLong, byArea);
+  return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+
+/** El SVG con tamaño absoluto: así se rasteriza como vector al tamaño final, no se amplía un mapa de bits. */
+function sizedSvg(svg: string, w: number, h: number): string {
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const root = doc.documentElement;
+  root.setAttribute("width", String(w));
+  root.setAttribute("height", String(h));
+  root.removeAttribute("style");
+  return new XMLSerializer().serializeToString(doc);
+}
+
+async function rasterize(svg: string, w: number, h: number): Promise<string> {
   const img = new Image();
-  img.src = svgDataUrl(svg);
+  img.src = svgDataUrl(sizedSvg(svg, w, h));
   await img.decode();
-  const scale = 2;
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, img.naturalWidth * scale);
-  canvas.height = Math.max(1, img.naturalHeight * scale);
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("sin contexto 2D");
   ctx.fillStyle = cssVar("--bg") || "#111";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, w, h);
   return canvas.toDataURL("image/png");
+}
+
+async function svgToPng(svg: string): Promise<string> {
+  const size = svgIntrinsicSize(svg) ?? { w: 1024, h: 768 };
+  // Un PNG que pase de 20 MB (gráficas con mucho ruido) se rehace a la mitad.
+  for (let long = PNG_LONG_SIDE; long >= 1024; long /= 2) {
+    const t = pngTargetSize(size.w, size.h, long);
+    const url = await rasterize(svg, t.w, t.h);
+    if (url.length <= MAX_DATA_URL) return url;
+  }
+  throw new Error("el PNG supera 20 MB incluso a 1024 px");
 }
 
 async function renderMermaid(code: string): Promise<string> {

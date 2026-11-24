@@ -206,6 +206,14 @@ impl<T> EventLoopRunner<T> {
   }
 
   pub(crate) unsafe fn send_event(&self, event: Event<'_, T>) {
+    // ULTRON (parche de 0.35.2): tras `LoopDestroyed` no se entregan más eventos. Al apagar
+    // Windows, `WM_ENDSESSION` destruye el bucle y aún llegan mensajes (repintados, eventos de
+    // otros hilos) antes de que el proceso termine; entregarlos llevaba a `move_state_to` a
+    // salir de `Destroyed` y a un pánico dentro del procedimiento de ventana (aborto).
+    if self.runner_state.get() == RunnerState::Destroyed {
+      debug!("evento descartado: el bucle ya está destruido");
+      return;
+    }
     if let Event::RedrawRequested(_) = event {
       if self.runner_state.get() != RunnerState::HandlingRedrawEvents {
         // TODO: Consider removing log once https://github.com/rust-windowing/winit/pull/2767 gets adopted.
@@ -368,7 +376,12 @@ impl<T> EventLoopRunner<T> {
         self.call_event_handler(Event::LoopDestroyed);
       }
 
-      (Destroyed, _) => panic!("cannot move state from Destroyed"),
+      // ULTRON (parche de 0.35.2): antes era `panic!`. Desde `Destroyed` no hay transición
+      // válida; se queda en `Destroyed` y no se emite nada (ver `send_event`).
+      (Destroyed, _) => {
+        debug!("transición desde Destroyed ignorada");
+        self.runner_state.set(Destroyed);
+      }
     }
   }
 
@@ -446,5 +459,45 @@ impl<T> BufferedEvent<T> {
         }
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod ultron_tests {
+  use super::*;
+  use std::rc::Rc;
+
+  /// Caso de `WM_ENDSESSION`: un evento que llega con el bucle ya destruido no panica ni
+  /// llega al manejador, y el estado sigue en `Destroyed`.
+  #[test]
+  fn evento_tras_loop_destroyed_no_panica_ni_se_entrega() {
+    let runner: EventLoopRunner<u32> = EventLoopRunner::new(HWND::default(), 0);
+    let vistos = Rc::new(RefCell::new(Vec::<String>::new()));
+    let v = vistos.clone();
+    unsafe {
+      runner.set_event_handler(move |e, _| v.borrow_mut().push(format!("{e:?}")));
+      runner.loop_destroyed();
+      let antes = vistos.borrow().len();
+      runner.send_event(Event::UserEvent(7));
+      runner.poll();
+      runner.main_events_cleared();
+      runner.redraw_events_cleared();
+      assert_eq!(vistos.borrow().len(), antes, "{:?}", vistos.borrow());
+    }
+    assert_eq!(runner.runner_state.get(), RunnerState::Destroyed);
+    assert!(runner.take_panic_error().is_ok());
+  }
+
+  /// Caso negativo: con el bucle vivo, el evento sí llega al manejador.
+  #[test]
+  fn con_el_bucle_vivo_el_evento_se_entrega() {
+    let runner: EventLoopRunner<u32> = EventLoopRunner::new(HWND::default(), 0);
+    let vistos = Rc::new(RefCell::new(Vec::<String>::new()));
+    let v = vistos.clone();
+    unsafe {
+      runner.set_event_handler(move |e, _| v.borrow_mut().push(format!("{e:?}")));
+      runner.send_event(Event::UserEvent(7));
+    }
+    assert!(vistos.borrow().iter().any(|e| e.contains("UserEvent(7)")), "{:?}", vistos.borrow());
   }
 }

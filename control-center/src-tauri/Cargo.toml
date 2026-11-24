@@ -175,8 +175,9 @@ incremental = false
 codegen-units = 256
 
 # tao 0.35.2 con el arreglo del interbloqueo al reiniciarse el Explorador (TaskbarCreated:
-# set_skip_taskbar con el lock de window_state tomado; corregido arriba en tao 0.37). Se quita al
-# subir a una version de tauri que traiga tao >= 0.37. Ver vendor/tao/ULTRON-PATCH.md.
+# set_skip_taskbar con el lock de window_state tomado; corregido arriba en tao 0.37) y sin el
+# panico "cannot move state from Destroyed" al apagar Windows (WM_ENDSESSION). Antes de quitarlo al
+# subir a tao >= 0.37, comprobar el segundo arreglo. Ver vendor/tao/ULTRON-PATCH.md.
 [patch.crates-io]
 tao = { path = "vendor/tao" }
 # tiny_http 0.12.0 con la carrera de TaskPool::spawn corregida: una conexion podia quedarse en

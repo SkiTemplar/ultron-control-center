@@ -129,6 +129,10 @@ pub trait PuenteHandler: Send + Sync + 'static {
     fn inbox(&self, body: Value) -> Result<Value, RouteError>;
     fn result(&self, body: Value) -> Result<Value, RouteError>;
     fn fill(&self, body: Value) -> Result<Value, RouteError>;
+    /// Trabajo en segundo plano del hook `Stop` (`puente_fondo.rs`).
+    fn background(&self, _body: Value) -> Result<Value, RouteError> {
+        Err(RouteError::not_found("ruta desconocida: /v1/background"))
+    }
 }
 
 /// Dirección del servidor en marcha. No hay token del proceso: cada sesión
@@ -543,6 +547,7 @@ fn despachar(h: &dyn PuenteHandler, route: &str, body: Value) -> Result<Value, R
         "/v1/inbox" => h.inbox(body),
         "/v1/result" => h.result(body),
         "/v1/fill" => h.fill(body),
+        "/v1/background" => h.background(body),
         _ => Err(RouteError::not_found(format!("ruta desconocida: {route}"))),
     }
 }

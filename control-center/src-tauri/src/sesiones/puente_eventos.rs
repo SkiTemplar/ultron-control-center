@@ -27,6 +27,8 @@ use super::types::{ev, AskCancelReason, OpResult, Usage};
 
 #[path = "puente_aplicar.rs"]
 mod aplicar;
+#[path = "puente_fondo.rs"]
+mod fondo;
 #[path = "puente_stream.rs"]
 pub mod stream;
 
@@ -648,6 +650,19 @@ impl PuenteHandler for SesionesPuente {
         let id = sesion_id(&body)?;
         require_session(&id)?;
         self.composer_fill(&id, &body);
+        Ok(ok())
+    }
+
+    fn background(&self, body: Value) -> Result<Value, RouteError> {
+        let id = sesion_id(&body)?;
+        require_session(&id)?;
+        let tareas = fondo::tareas(&body);
+        registro::update(&id, |s| {
+            let cambio = s.info.background_tasks != tareas;
+            s.info.background_tasks = tareas;
+            (cambio, ())
+        })
+        .map_err(RouteError::not_found)?;
         Ok(ok())
     }
 }

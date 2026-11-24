@@ -326,6 +326,9 @@
     },
     "scripts/usage-schedule-fit.selftest.mjs": {
       "ci": true
+    },
+    "hooks/scripts/sessions-background.selftest.mjs": {
+      "ci": true
     }
   }
 }

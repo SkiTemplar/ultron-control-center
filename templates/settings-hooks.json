@@ -282,6 +282,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {USERPROFILE}/.ultron/hooks/scripts/sessions-background.js",
+            "timeout": 5,
+            "async": true
+          }
+        ]
       }
     ],
     "SubagentStart": [

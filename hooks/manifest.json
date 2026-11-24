@@ -1,7 +1,7 @@
 {
   "$schema": "https://ultron.local/schemas/hooks-manifest-v2.json",
   "manifest_version": 2,
-  "generated_at": "2026-11-20",
+  "generated_at": "2026-11-23",
   "generated_by": "hooks/regen-manifest.js (NO editar hooks[] a mano; editar settings.json y regenerar)",
   "source_of_truth": "~/.claude/settings.json (config viva) -> scripts versionados en ~/.ultron",
   "notes": [
@@ -507,6 +507,29 @@
       "writes_memory": false,
       "writer_path": "NONE",
       "description": "Captura comandos REJECTED / ai_cannot_execute (los que solo fallaron ya no, 2026-10-23) a la cola ~/.ultron/batches/queue-pending.jsonl, que consume el desplegable Ejecutar .bat de Projects (no el RunBatch del kanban, retirado el 2026-10-17). Cola operativa, no memoria semantica."
+    },
+    {
+      "id": "sessions-background",
+      "event": "Stop",
+      "matcher": "*",
+      "command": "node ~/.ultron/hooks/scripts/sessions-background.js",
+      "script": "~/.ultron/hooks/scripts/sessions-background.js",
+      "timeout_s": 5,
+      "async": true,
+      "checksum_sha256": "66816f33aaa8a4d19dc93594885c26a52fb76ff0f986e6a7e1ba8644f9f3a74d",
+      "deps_sha256": "87f42a1d7fda6215898233decb1dab8df0a266a5e67452970e6b2e86bfa46ca8",
+      "version": "1.0.0",
+      "env_allowlist": [
+        "ULTRON_PUENTE_URL",
+        "ULTRON_PUENTE_TOKEN",
+        "ULTRON_SESION_ID",
+        "SESSIONS_BACKGROUND_DISABLED",
+        "CLAUDE_NO_HOOKS"
+      ],
+      "failure_policy": "no_op",
+      "writes_memory": false,
+      "writer_path": "NONE",
+      "description": "Stop. En sesiones de ULTRON Sessions reenvia al puente (POST /v1/background, solo loopback) los shells, monitores y despertadores que siguen vivos al cerrar el turno (background_tasks y session_crons del hook Stop), para que el punto de la sesion pase a segundo plano en vez de quedarse gris. Una lista vacia tambien se manda: es la que limpia el estado. Fuera de Sessions no hace nada. No escribe memoria."
     },
     {
       "id": "subagent-lifecycle",

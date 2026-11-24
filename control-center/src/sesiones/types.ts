@@ -5,6 +5,7 @@
 
 import type { AgentNode } from "./agent-node";
 export type { DelegationAttempt, DelegationRun } from "./delegation-run";
+import type { BackgroundTask } from "./background";
 import type { WorkflowEvent } from "./workflows";
 
 export type SessionId = string;
@@ -57,6 +58,8 @@ export interface SessionInfo {
   queuePause?: QueuePause | null;
   /** Herramienta del hilo principal en primer plano (§3.4); solo viaja con una abierta. */
   foregroundTool?: ForegroundTool | null;
+  /** Shells, monitores y despertadores vivos según el último hook `Stop`; solo viaja si hay alguno. */
+  backgroundTasks?: BackgroundTask[];
   /** Sesión de motor (Codex, Gemini u OpenCode) sin Claude; ausente en las de Claude. */
   engine?: EngineId;
 }

@@ -105,6 +105,10 @@ pub struct SessionInfo {
     /// con una herramienta abierta.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub foreground_tool: Option<ForegroundTool>,
+    /// Shells, monitores y despertadores vivos del hilo principal según el
+    /// último hook `Stop` (`puente_fondo.rs`). Solo viaja si hay alguno.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub background_tasks: Vec<BackgroundTask>,
     /// Sesión de motor (`codex` | `gemini`, `motor_sesion.rs`); `None` en las
     /// de Claude. Solo viaja en las de motor.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,9 +143,25 @@ impl SessionInfo {
             terminal_attached: false,
             queue_pause: None,
             foreground_tool: None,
+            background_tasks: Vec::new(),
             engine: None,
         }
     }
+}
+
+/// Trabajo en segundo plano que el mod no ve (`puente_fondo.rs`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTask {
+    pub id: String,
+    /// `shell`, `monitor` o `cron` (u otro tipo que la CLI añada).
+    pub kind: String,
+    pub description: String,
+    /// Expresión cron de un despertador; `None` en el resto.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub recurring: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

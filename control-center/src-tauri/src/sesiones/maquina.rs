@@ -704,6 +704,10 @@ pub fn proyectar(e: &EstadoSesion, info: &mut SessionInfo) -> bool {
     info.bridge_protocol = e.protocolo;
     info.queue_pause = pausa_visible(e);
     info.foreground_tool = super::segundo_plano::primer_plano(e);
+    // Un proceso terminado o relanzado no conserva sus shells en segundo plano.
+    if matches!(e.status, SessionStatus::Exited | SessionStatus::Starting) {
+        info.background_tasks.clear();
+    }
     // Puente del proceso actual: el reinicio olvida el protocolo hasta el
     // `hello` del relanzado, y un proceso terminado no tiene puente.
     info.bridge_connected = e.protocolo >= 1 && e.status != SessionStatus::Exited;
