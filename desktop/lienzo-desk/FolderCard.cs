@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Threading;
 
 namespace LienzoDesk;
 
@@ -39,6 +40,11 @@ public sealed class FolderCard : Window
     private bool _isCollapsed;
     // Posición de la carpeta plegada; abierta puede desplazarse para no salirse de la pantalla.
     private Point _home;
+    // Windows mueve a veces las tarjetas sin mandar ningún aviso del sistema (aparecían en el centro de la
+    // pantalla). Plegada, la tarjeta vigila su posición: si la mueve alguien que no es ella ni un arrastre, vuelve
+    // a su sitio cuando dejan de moverla (cada movimiento nuevo reinicia la espera).
+    private readonly DispatcherTimer _guard = new() { Interval = TimeSpan.FromSeconds(1.5) };
+    private bool _isDragging;
 
     public FolderCard(string folder, DeskConfig config, Point fallback)
     {
@@ -79,12 +85,25 @@ public sealed class FolderCard : Window
         // El primer diseño (SizeToContent) y el anclaje al escritorio pueden dejar la ventana en el centro: se recoloca tras pintar.
         ContentRendered += (_, _) => PlaceAtHome();
         Activated += (_, _) => { if (_isCollapsed) Native.SendToBottom(this); };
+        LocationChanged += (_, _) => WatchForeignMove();
+        _guard.Tick += (_, _) =>
+        {
+            _guard.Stop();
+            if (ReturnHome() is { } from) MovedBack?.Invoke(from);
+        };
         Drop += OnDrop;
-        Closed += (_, _) => _watcher.Dispose();
+        Closed += (_, _) =>
+        {
+            _guard.Stop();
+            _watcher.Dispose();
+        };
     }
 
     /// <summary>Se dispara al plegar o desplegar (Program activa el cierre por clic fuera).</summary>
     public event Action? ExpandedChanged;
+
+    /// <summary>La tarjeta volvió sola a su sitio tras moverla otro; recibe dónde estaba (Program lo registra).</summary>
+    public event Action<Point>? MovedBack;
 
     public bool IsExpanded => !_isCollapsed;
 
@@ -110,10 +129,22 @@ public sealed class FolderCard : Window
     /// </summary>
     public Point? ReturnHome()
     {
+        // Con el monitor de su sitio apagado o desconectado se queda donde la dejó Windows: devolverla la
+        // sacaría de la pantalla. Vuelve con el aviso de cambio de pantallas cuando el monitor regresa.
+        if (_isCollapsed && !Glass.IsOnAnyMonitor(this, _home)) return null;
         var before = new Point(Left, Top);
         PlaceAtHome();
         if (_isCollapsed) Native.SendToBottom(this);
         return Math.Abs(Left - before.X) + Math.Abs(Top - before.Y) >= 1 ? before : null;
+    }
+
+    /// <summary>Plegada y fuera de su sitio sin estar arrastrándola: programa la vuelta (ver <see cref="_guard"/>).</summary>
+    private void WatchForeignMove()
+    {
+        if (_isDragging || !_isCollapsed) return;
+        if (Math.Abs(Left - _home.X) + Math.Abs(Top - _home.Y) < 1) return;
+        _guard.Stop();
+        _guard.Start();
     }
 
     private void Place(double x, double y)
@@ -252,17 +283,25 @@ public sealed class FolderCard : Window
         {
             if (e.OriginalSource is TextBlock { Tag: "edit" }) return;
             var before = new Point(Left, Top);
-            DragMove();
-            if (Math.Abs(Left - before.X) + Math.Abs(Top - before.Y) < 3)
+            _isDragging = true;
+            try
             {
-                ToggleCollapsed();
-                return;
+                DragMove();
+                if (Math.Abs(Left - before.X) + Math.Abs(Top - before.Y) < 3)
+                {
+                    ToggleCollapsed();
+                    return;
+                }
+                Left = Snap(Left);
+                Top = Snap(Top);
+                _home = new Point(Left, Top);
+                _config.Positions[FolderName] = [Left, Top];
+                _config.Save();
             }
-            Left = Snap(Left);
-            Top = Snap(Top);
-            _home = new Point(Left, Top);
-            _config.Positions[FolderName] = [Left, Top];
-            _config.Save();
+            finally
+            {
+                _isDragging = false;
+            }
         };
         return area;
     }

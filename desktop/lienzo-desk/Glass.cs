@@ -51,6 +51,7 @@ public static class Glass
 
     private static readonly IEasingFunction EaseOut = Freeze(new CubicEase { EasingMode = EasingMode.EaseOut });
 
+    private const uint MonitorDefaultToNull = 0;
     private const uint MonitorDefaultToNearest = 2;
     private const uint SwpNoSize = 0x0001, SwpNoZOrder = 0x0004, SwpNoActivate = 0x0010;
 
@@ -117,6 +118,22 @@ public static class Glass
         var dpi = VisualTreeHelper.GetDpi(window);
         return new Rect(info.Work.Left / dpi.DpiScaleX, info.Work.Top / dpi.DpiScaleY,
             (info.Work.Right - info.Work.Left) / dpi.DpiScaleX, (info.Work.Bottom - info.Work.Top) / dpi.DpiScaleY);
+    }
+
+    /// <summary>
+    /// Si la esquina superior izquierda de una ventana colocada en <paramref name="logical"/> (píxeles lógicos)
+    /// cae dentro de algún monitor conectado. Falso cuando el monitor de esa posición está apagado o desconectado.
+    /// </summary>
+    public static bool IsOnAnyMonitor(Window window, Point logical)
+    {
+        var dpi = VisualTreeHelper.GetDpi(window);
+        // Unos píxeles hacia dentro: la esquina exacta puede caer en el borde entre dos monitores.
+        var point = new Native.NativePoint
+        {
+            X = (int)Math.Round(logical.X * dpi.DpiScaleX) + 8,
+            Y = (int)Math.Round(logical.Y * dpi.DpiScaleY) + 8,
+        };
+        return MonitorFromPoint(point, MonitorDefaultToNull) != IntPtr.Zero;
     }
 
     /// <summary>Entrada suave: aparece desde transparente, un poco desplazada y algo más pequeña.</summary>

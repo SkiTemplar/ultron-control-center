@@ -7,7 +7,7 @@ namespace LienzoDesk;
 /// <summary>
 /// Un solo proceso residente con una tarjeta por carpeta de %LOCALAPPDATA%\Lienzo\Carpetas. Instancia única.
 /// Crear o borrar una carpeta ahí añade o quita su tarjeta en caliente. Si Windows mueve las tarjetas (monitor que
-/// se apaga o reconecta, suspensión), las devuelve a su sitio y lo anota en desk-moves.log. Tras dibujar y cada pocos minutos
+/// se apaga o reconecta, suspensión, o sin aviso alguno), las devuelve a su sitio y lo anota en desk-moves.log. Tras dibujar y cada pocos minutos
 /// recorta su memoria para quedarse en lo mínimo. La del Explorador no se toca: recortarla no libera RAM (las
 /// páginas pasan a la lista en espera) y cada clic derecho tardaba ~15 ms más en volver a cargarlas (medido el
 /// 2026-10-28: 62 frente a 77 ms).
@@ -133,22 +133,27 @@ public static class Program
     {
         foreach (var card in Cards.Values)
         {
-            if (card.ReturnHome() is not { } from) continue;
-            var line = $"{DateTime.Now:s} {_realignReason}: {card.FolderName} estaba en {from.X:0},{from.Y:0}; vuelve a {card.Left:0},{card.Top:0}";
-            try
-            {
-                File.AppendAllText(MovesLog, line + Environment.NewLine);
-            }
-            catch (IOException)
-            {
-                // El registro es diagnóstico: si el fichero está bloqueado, la tarjeta ya ha vuelto igualmente.
-            }
+            if (card.ReturnHome() is { } from) LogMove(_realignReason, card, from);
         }
         _realignPass++;
         Realign.Stop();
         if (_realignPass >= RealignDelays.Length) return;
         Realign.Interval = RealignDelays[_realignPass];
         Realign.Start();
+    }
+
+    /// <summary>Anota en desk-moves.log que una tarjeta ha vuelto a su sitio, por qué y desde dónde.</summary>
+    private static void LogMove(string reason, FolderCard card, Point from)
+    {
+        var line = $"{DateTime.Now:s} {reason}: {card.FolderName} estaba en {from.X:0},{from.Y:0}; vuelve a {card.Left:0},{card.Top:0}";
+        try
+        {
+            File.AppendAllText(MovesLog, line + Environment.NewLine);
+        }
+        catch (IOException)
+        {
+            // El registro es diagnóstico: si el fichero está bloqueado, la tarjeta ya ha vuelto igualmente.
+        }
     }
 
     /// <summary>
@@ -178,6 +183,7 @@ public static class Program
         var area = SystemParameters.WorkArea;
         var card = new FolderCard(folder, _config, new Point(area.Right - 480, _nextY));
         card.ExpandedChanged += UpdateOutsideClick;
+        card.MovedBack += from => LogMove("movida sin aviso del sistema", card, from);
         card.Show();
         // Plegada, al fondo; abierta, por encima de las demás tarjetas (que se crean después y quedarían encima).
         Native.SendToBottom(card);
