@@ -40,12 +40,14 @@ static SHORTCUT_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub const FULLSCREEN: u8 = 1;
 /// Micrófono en uso (calls.rs).
 pub const CALL: u8 = 2;
+/// Vídeo protegido (Netflix…) visible en el monitor de la mascota (desk_watch.rs).
+pub const VIDEO: u8 = 4;
 
 pub fn is_hidden() -> bool {
     MANUAL_HIDDEN.load(Ordering::SeqCst) || AUTO_REASONS.load(Ordering::SeqCst) != 0
 }
 
-/// Motivo de ocultación vigente ("manual", "call" o "fullscreen"), o `None`.
+/// Motivo de ocultación vigente ("manual", "call", "fullscreen" o "video"), o `None`.
 pub fn hidden_reason() -> Option<&'static str> {
     reason_label(
         MANUAL_HIDDEN.load(Ordering::SeqCst),
@@ -70,6 +72,8 @@ fn reason_label(manual: bool, mask: u8) -> Option<&'static str> {
         Some("call")
     } else if mask & FULLSCREEN != 0 {
         Some("fullscreen")
+    } else if mask & VIDEO != 0 {
+        Some("video")
     } else {
         None
     }
@@ -270,7 +274,7 @@ fn hidden_status() -> HiddenStatus {
 pub struct HiddenStatus {
     pub hidden: bool,
     pub manual: bool,
-    /// "manual", "call", "fullscreen" o nada.
+    /// "manual", "call", "fullscreen", "video" o nada.
     pub reason: Option<&'static str>,
     /// Ctrl+Alt+P registrado (solo con Pupus activado).
     pub shortcut: bool,
@@ -424,6 +428,21 @@ mod tests {
         assert_eq!(with_reason(m, FULLSCREEN, false), 0);
         assert_eq!(reason_label(true, 0), Some("manual"));
         assert_eq!(reason_label(false, 0), None);
+    }
+
+    #[test]
+    fn el_video_protegido_tiene_su_propio_motivo() {
+        let m = with_reason(0, VIDEO, true);
+        assert_eq!(reason_label(false, m), Some("video"));
+        // La pantalla completa manda sobre el vídeo; quitarla deja el vídeo.
+        let m = with_reason(m, FULLSCREEN, true);
+        assert_eq!(reason_label(false, m), Some("fullscreen"));
+        assert_eq!(
+            reason_label(false, with_reason(m, FULLSCREEN, false)),
+            Some("video")
+        );
+        // Caso negativo: cerrar el vídeo no deja motivo.
+        assert_eq!(with_reason(VIDEO, VIDEO, false), 0);
     }
 
     #[test]

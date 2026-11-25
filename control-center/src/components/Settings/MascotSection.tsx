@@ -26,7 +26,7 @@ interface BridgeStatus {
 export interface HiddenStatus {
   hidden: boolean;
   manual: boolean;
-  reason: "manual" | "call" | "fullscreen" | null;
+  reason: "manual" | "call" | "fullscreen" | "video" | null;
   shortcut: boolean;
 }
 
@@ -40,6 +40,8 @@ export function hiddenText(h: HiddenStatus | null): string | null {
       return "Escondido mientras una aplicación usa el micrófono; vuelve solo al terminar.";
     case "fullscreen":
       return "Escondido por una ventana a pantalla completa (o un juego que le quita el suelo) en su monitor; vuelve solo cuando deja de estar delante.";
+    case "video":
+      return "Escondido mientras hay un vídeo protegido (Netflix, Prime Video…) en su monitor: su capa transparente dejaba la pantalla en negro. Vuelve al minimizarlo o cerrarlo.";
     default:
       return "Oculto.";
   }

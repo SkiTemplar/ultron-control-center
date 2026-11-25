@@ -3,7 +3,8 @@
 //
 //   * Primer plano → ForegroundState (exe, título, juego de la tabla y
 //     silencio) y evento `mascot:foreground` SOLO cuando cambia.
-//   * Auto-ocultación: pantalla completa en el monitor de Pupus (la regla
+//   * Auto-ocultación: pantalla completa o vídeo protegido (Netflix…) en el
+//     monitor de Pupus (la regla
 //     de siempre) o, en modo juego, un juego en su monitor que le deja sin
 //     suelo libre.
 //   * Barra de tareas: huella barata de ventanas; si cambia, relectura por
@@ -152,6 +153,9 @@ fn tick(app: &AppHandle, st: &mut Loop) {
     }
     let quiet = current().is_some_and(|c| c.quiet);
     screens::set_auto_hidden(app, fullscreen_own || (quiet && st.game_blocks));
+    // Vídeo protegido en su monitor: la capa transparente lo dejaba todo en negro.
+    let video_own = own.is_some_and(|c| win_fg::protected_video_monitors().contains(&c));
+    screens::set_auto_reason(app, screens::VIDEO, video_own);
     if !quiet {
         // Pupus camina sobre la barra: si la barra se ha subido por encima
         // (al activarla o al reiniciar el Explorador), vuelve a quedar debajo.

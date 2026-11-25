@@ -37,6 +37,28 @@ pub fn is_shell_class(class: &str) -> bool {
     )
 }
 
+/// Plataformas con vídeo protegido (DRM por hardware). Con su vídeo en
+/// marcha, la ventana transparente de Pupus en el mismo monitor dejaba toda
+/// la pantalla en negro (2026-11-20, Netflix): Pupus se esconde mientras haya
+/// una ventana visible suya en su monitor. Se reconocen por el título, que
+/// también cubre las pestañas del navegador.
+const PROTECTED_VIDEO_TITLES: &[&str] = &[
+    "netflix",
+    "prime video",
+    "disney+",
+    "hbo max",
+    "movistar plus+",
+    "skyshowtime",
+    "apple tv+",
+    "filmin",
+];
+
+/// ¿El título es de una plataforma con vídeo protegido? Pura.
+pub fn is_protected_video_title(title: &str) -> bool {
+    let t = title.to_lowercase();
+    PROTECTED_VIDEO_TITLES.iter().any(|p| t.contains(p))
+}
+
 /// «C:\Games\RocketLeague.exe» → «rocketleague.exe».
 pub fn exe_name(path: &str) -> String {
     path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase()
@@ -69,8 +91,8 @@ mod imp {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, FindWindowW, GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindow,
         GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-        GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, SM_CMONITORS,
-        WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GetWindowThreadProcessId, IsIconic, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, GW_OWNER,
+        SM_CMONITORS, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
 
     /// (hwnd, pid) → (exe, ruta): OpenProcess solo cuando cambia la ventana.
@@ -286,6 +308,18 @@ mod imp {
         unsafe { GetSystemMetrics(SM_CMONITORS) }.hash(&mut hasher);
         hasher.finish()
     }
+
+    /// Esquina superior izquierda del monitor de cada ventana visible y sin
+    /// minimizar de una plataforma con vídeo protegido.
+    pub fn protected_video_monitors() -> Vec<(i32, i32)> {
+        top_level()
+            .into_iter()
+            .filter(|&h| on_taskbar(h) && unsafe { IsIconic(h) } == 0)
+            .filter(|&h| super::is_protected_video_title(&title(h)))
+            .filter_map(|h| monitor_of(h as usize as u64))
+            .map(|(m, _)| (m.0, m.1))
+            .collect()
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -316,6 +350,9 @@ mod stub {
     pub fn app_window_fingerprint() -> u64 {
         0
     }
+    pub fn protected_video_monitors() -> Vec<(i32, i32)> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +364,29 @@ mod tests {
         assert!(is_shell_class("Shell_SecondaryTrayWnd"));
         assert!(is_shell_class("Progman"));
         assert!(!is_shell_class("UnrealWindow"));
+    }
+
+    #[test]
+    fn reconoce_las_ventanas_de_video_protegido_por_el_titulo() {
+        for t in [
+            "Netflix",
+            "Stranger Things | Netflix - Google Chrome",
+            "Prime Video: The Boys",
+            "Disney+ | Inicio - Microsoft Edge",
+            "HBO Max",
+        ] {
+            assert!(is_protected_video_title(t), "{t}");
+        }
+        // Casos negativos: ni vacío ni títulos corrientes.
+        for t in [
+            "",
+            "ULTRON Sessions",
+            "WhatsApp",
+            "Maximizar ventana",
+            "video.mp4 - VLC",
+        ] {
+            assert!(!is_protected_video_title(t), "{t}");
+        }
     }
 
     #[test]
@@ -343,6 +403,20 @@ mod tests {
         imp::ENUMS.with(|c| c.set(0));
         let _ = app_window_fingerprint();
         assert_eq!(imp::ENUMS.with(|c| c.get()), 1);
+    }
+
+    /// Sonda en vivo (no corre en CI), con Netflix o similar abierto:
+    /// cargo test --lib mascot::win_fg::tests::sonda_video_protegido -- --ignored --nocapture
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore]
+    fn sonda_video_protegido() {
+        let monitores = protected_video_monitors();
+        println!("monitores con vídeo protegido: {monitores:?}");
+        assert!(
+            !monitores.is_empty(),
+            "abre Netflix antes de lanzar la sonda"
+        );
     }
 
     /// Sonda en vivo (no corre en CI): cargo test --lib

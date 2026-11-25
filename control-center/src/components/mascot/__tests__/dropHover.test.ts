@@ -95,6 +95,7 @@ describe("motivo de ocultación en Settings", () => {
     expect(hiddenText(st({ reason: "manual", manual: true }))).toContain("Ctrl+Alt+P");
     expect(hiddenText(st({ reason: "call" }))).toContain("micrófono");
     expect(hiddenText(st({ reason: "fullscreen" }))).toContain("pantalla completa");
+    expect(hiddenText(st({ reason: "video" }))).toContain("vídeo protegido");
     expect(hiddenText(st({ hidden: false, reason: null }))).toBeNull();
     expect(hiddenText(null)).toBeNull();
   });
